@@ -47,6 +47,11 @@ export interface RetrievedItem {
   source: string;
 }
 
+export interface LiveOutput {
+  stage: string;
+  text: string;
+}
+
 export interface TaskIntermediate {
   parsed?: Record<string, string>;
   operators?: { total_calls: number; leaf_ops: string[] };
@@ -54,6 +59,9 @@ export interface TaskIntermediate {
   retrieval?: Record<string, number>;
   config_stats?: Record<string, number>;
   gen_mode?: string;
+  live?: LiveOutput;
+  live_config?: LiveOutput;
+  live_handler?: LiveOutput;
 }
 
 export interface TaskState {

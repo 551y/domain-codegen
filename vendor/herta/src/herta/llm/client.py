@@ -11,7 +11,9 @@ Chat 与 Embedding 的供应商可分别配置（DeepSeek 无 embedding 接口�
 
 from typing import List, Optional, Dict, Any
 
+import json
 import re
+import threading
 
 from zai import ZhipuAiClient
 
@@ -20,6 +22,25 @@ from herta.constants import PROVIDER_OPENAI
 from herta.logging import get_logger
 
 logger = get_logger(__name__)
+
+# demo 集成优化：线程本地流式输出回调。
+# 上层（编排服务）在生成线程里 set_stream_sink(fn) 后，该线程内的 chat 调用
+# 会以 fn("begin") / fn("delta", 增量文本) 实时上报生成过程；不设置则行为与原来一致。
+_stream_local = threading.local()
+
+
+def set_stream_sink(fn):
+    """为当前线程设置流式输出回调 fn(kind, text)；传 None 关闭"""
+    _stream_local.sink = fn
+
+
+def _emit(kind: str, text: str = ""):
+    sink = getattr(_stream_local, "sink", None)
+    if sink:
+        try:
+            sink(kind, text)
+        except Exception:
+            pass
 
 
 def _normalize_base_url(url: str) -> str:
@@ -93,7 +114,8 @@ class BigModelClient:
             messages: 消息列表，格式为 [{"role": "user", "content": "..."}, ...]
             model: 模型名称，默认使用配置中的 chat_model
             temperature: 采样温度，默认 0.1（更确定性）
-            stream: 是否流式输出，当前简化版仅支持 False
+            stream: 兼容保留参数；内部始终流式请求并聚合全文返回
+                （线程内设置 set_stream_sink 后可实时收到增量回调）
 
         Returns:
             模型生成的纯文本字符串
@@ -112,10 +134,6 @@ class BigModelClient:
             if "role" not in msg or "content" not in msg:
                 raise ValueError('messages 中的每项必须包含 "role" 和 "content" 字段')
 
-        if stream:
-            logger.warning("stream=True 暂不支持，已自动切换为同步模式")
-            stream = False
-
         model_name = model or self.settings.chat_model
 
         if self.settings.chat_provider == PROVIDER_OPENAI:
@@ -129,17 +147,28 @@ class BigModelClient:
             self._zai_chat_client = ZhipuAiClient(api_key=self.settings.effective_chat_key())
         try:
             logger.debug(f"调用智谱 chat 接口，模型: {model_name}, 消息数: {len(messages)}")
+            # 始终流式请求并聚合全文：设置了线程 sink 时可实时上报增量，否则等价于原同步行为
             response = self._zai_chat_client.chat.completions.create(
                 model=model_name,
                 messages=messages,
                 temperature=temperature,
-                stream=False,
+                stream=True,
             )
-            if hasattr(response, "choices") and len(response.choices) > 0:
-                content = response.choices[0].message.content
-                logger.debug(f"chat 调用成功，返回长度: {len(content)}")
-                return content
-            raise RuntimeError("API 返回格式异常，未找到 choices 字段")
+            _emit("begin")
+            parts: List[str] = []
+            for chunk in response:
+                delta = None
+                try:
+                    if chunk.choices:
+                        delta = chunk.choices[0].delta.content
+                except Exception:
+                    delta = None
+                if delta:
+                    parts.append(delta)
+                    _emit("delta", delta)
+            content = "".join(parts)
+            logger.debug(f"chat 调用成功，返回长度: {len(content)}")
+            return content
         except Exception as e:
             logger.error(f"chat 调用失败: {e}")
             raise RuntimeError(f"chat API 调用失败: {e}") from e
@@ -153,14 +182,38 @@ class BigModelClient:
         if not key:
             raise RuntimeError("chat_provider=openai 但未配置 HERTA_CHAT_API_KEY")
         try:
+            import httpx
+        except ImportError as e:
+            raise RuntimeError("使用 OpenAI 兼容供应商需要 httpx：pip install httpx") from e
+        url = f"{_normalize_base_url(self.settings.chat_base_url)}/chat/completions"
+        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+        payload = {"model": model_name, "messages": messages, "temperature": temperature, "stream": True}
+        try:
             logger.debug(f"调用 OpenAI 兼容 chat 接口 {self.settings.chat_base_url}，模型: {model_name}")
-            data = _openai_post(
-                self.settings.chat_base_url,
-                "/chat/completions",
-                key,
-                {"model": model_name, "messages": messages, "temperature": temperature, "stream": False},
-            )
-            content = data["choices"][0]["message"]["content"]
+            # SSE 流式读取并聚合全文（设置线程 sink 时实时上报增量）
+            parts: List[str] = []
+            with httpx.Client(timeout=180.0) as client:
+                with client.stream("POST", url, json=payload, headers=headers) as resp:
+                    if resp.status_code != 200:
+                        resp.read()
+                        raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:300]}")
+                    _emit("begin")
+                    for line in resp.iter_lines():
+                        if not line or not line.startswith("data:"):
+                            continue
+                        data_str = line[5:].strip()
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            obj = json.loads(data_str)
+                            choices = obj.get("choices") or []
+                            delta = (choices[0].get("delta") or {}).get("content") if choices else None
+                        except Exception:
+                            continue
+                        if delta:
+                            parts.append(delta)
+                            _emit("delta", delta)
+            content = "".join(parts)
             logger.debug(f"chat 调用成功，返回长度: {len(content)}")
             return content
         except Exception as e:

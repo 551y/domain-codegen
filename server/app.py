@@ -88,6 +88,31 @@ def _task_intermediate(task_id: str, **kw):
             t.setdefault("intermediate", {}).update(kw)
 
 
+def _live_sink(task_id: str, key: str, stage_names: list):
+    """生成线程内的流式输出回调：聚合增量文本，节流后写入任务 intermediate[key]。
+
+    kind="begin" 表示一次新的 LLM 调用开始（handler 链有 设计草图→完整代码 两次调用）。
+    仅保留尾部窗口，前端以打字机效果展示，完整文本由最终结果承载。
+    """
+    state = {"call": 0, "buf": "", "last": 0.0}
+
+    def sink(kind: str, text: str):
+        if kind == "begin":
+            state["call"] += 1
+            state["buf"] = ""
+            stage = stage_names[min(state["call"] - 1, len(stage_names) - 1)]
+            _task_intermediate(task_id, **{key: {"stage": stage, "text": ""}})
+            return
+        state["buf"] += text
+        now = time.monotonic()
+        if now - state["last"] >= 0.4:
+            state["last"] = now
+            stage = stage_names[min(max(state["call"], 1) - 1, len(stage_names) - 1)]
+            _task_intermediate(task_id, **{key: {"stage": stage, "text": state["buf"][-1500:]}})
+
+    return sink
+
+
 def _llm_available() -> bool:
     try:
         from herta.config import get_settings
@@ -682,6 +707,7 @@ def _run_protocol(task_id: str, req: GenerateRequest):
             # 并行执行可将 wall-clock 从两者之和降到两者之较长者
             from herta.generator.config_generator import ConfigGenerator
             from herta.generator.handler_generator import HandlerGenerator
+            from herta.llm.client import set_stream_sink
 
             _task_update(task_id, progress=15, message="检索协议知识库…")
             _task_intermediate(task_id, gen_mode="LLM 在线生成")
@@ -690,6 +716,7 @@ def _run_protocol(task_id: str, req: GenerateRequest):
             err_holder: dict = {}
 
             def _gen_config():
+                set_stream_sink(_live_sink(task_id, "live_config", ["配置生成 config.json"]))
                 try:
                     cfg_holder["r"] = ConfigGenerator().generate(
                         target_doc_path=doc_path, source_kb_dir=kb_dir,
@@ -699,6 +726,8 @@ def _run_protocol(task_id: str, req: GenerateRequest):
                     err_holder["config"] = e
 
             def _gen_handler():
+                set_stream_sink(_live_sink(
+                    task_id, "live_handler", ["处理代码 · 设计草图", "处理代码 · 完整代码"]))
                 try:
                     HandlerGenerator().generate(
                         target_doc_path=doc_path, source_kb_dir=kb_dir,
@@ -936,7 +965,8 @@ def _run_operator(task_id: str, req: GenerateRequest):
             _task_intermediate(task_id, gen_mode="LLM 在线生成")
             _task_update(task_id, progress=45, message=f"LLM 生成 ONNX 导出代码（真实调用，约 1–2 分钟，注入 {len(retrieved)} 条知识）…")
             from herta.config import get_settings
-            from herta.llm.client import BigModelClient
+            from herta.llm.client import BigModelClient, set_stream_sink
+            set_stream_sink(_live_sink(task_id, "live", ["ONNX 导出代码"]))
             messages = _build_onnx_prompt(source_text, analysis, retrieved)
             raw = BigModelClient().chat(
                 messages=messages, model=get_settings().chat_model, temperature=0.1,

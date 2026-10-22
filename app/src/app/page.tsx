@@ -102,16 +102,44 @@ function Stepper({
 
 // ---------- 中间过程输出（解析/检索等阶段产出，执行中实时展示） ----------
 
+function LiveBox({ live }: { live: { stage: string; text: string } }) {
+  const ref = useRef<HTMLPreElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+  }, [live.text]);
+  return (
+    <div>
+      <div className="mb-1 flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+        <Loader2 size={11} className="animate-spin text-primary" />
+        实时生成输出 · <span className="font-medium text-foreground">{live.stage}</span>
+        <span className="font-mono text-[9.5px]">LLM 流式</span>
+      </div>
+      <pre
+        ref={ref}
+        className="code-scroll max-h-[180px] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted/70 p-2.5 font-mono text-[10.5px] leading-relaxed text-foreground/90"
+      >
+        {live.text}
+        <span className="animate-pulse text-primary">▍</span>
+      </pre>
+    </div>
+  );
+}
+
 function IntermediateView({ data }: { data: TaskIntermediate }) {
   const hasAny =
     data.gen_mode || data.parsed || data.operators ||
-    (data.retrieved && data.retrieved.length > 0) || data.retrieval || data.config_stats;
+    (data.retrieved && data.retrieved.length > 0) || data.retrieval || data.config_stats ||
+    data.live || data.live_config || data.live_handler;
   if (!hasAny) return null;
   return (
     <div className="mt-3 space-y-2.5 rounded-lg border border-border/70 bg-card/70 p-3">
       <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
         中间过程输出
       </div>
+
+      {data.live && <LiveBox live={data.live} />}
+      {data.live_config && <LiveBox live={data.live_config} />}
+      {data.live_handler && <LiveBox live={data.live_handler} />}
 
       {data.gen_mode && (
         <div className="flex items-center gap-2 text-[11.5px]">
