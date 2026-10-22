@@ -445,6 +445,28 @@ def _doc_protocol_eval(doc_path: Path, config_obj: dict, gen_handler: Path) -> O
     }
 
 
+def _match_ground_truth(doc_path: Path):
+    """上传文档匹配目标协议库的标准答案：先按 docx 内容指纹，再按文件名。
+    匹配成功则上传路径与离线预置走同一套 ground truth AST 比对评测。"""
+    if not HERTA_TARGET_DIR.exists():
+        return None, None
+    doc_hash = hashlib.sha256(doc_path.read_bytes()).hexdigest()
+    stem = doc_path.stem.lower()
+    for d in sorted(HERTA_TARGET_DIR.iterdir()):
+        if not d.is_dir():
+            continue
+        gt_c = d / f"{d.name}_config.json"
+        gt_h = d / f"{d.name}_handler.c"
+        if not (gt_c.exists() and gt_h.exists()):
+            continue
+        for ref in d.glob("*.docx"):
+            if hashlib.sha256(ref.read_bytes()).hexdigest() == doc_hash:
+                return gt_c, gt_h
+        if stem == d.name.lower():
+            return gt_c, gt_h
+    return None, None
+
+
 # ---------------------------------------------------------------------------
 # API：基础信息
 # ---------------------------------------------------------------------------
@@ -615,8 +637,8 @@ def _run_protocol(task_id: str, req: GenerateRequest):
                 raise RuntimeError("上传文件不存在")
             doc_path = docs[0]
             target_name = req.source
-            gt_config = None
-            gt_handler = None
+            # 上传文档若与协议库中已有目标一致（如 dllg），挂上其标准答案，统一评测体系
+            gt_config, gt_handler = _match_ground_truth(doc_path)
         else:
             name = _safe_name(req.source)
             doc_path = HERTA_TARGET_DIR / name / f"{name}.docx"
@@ -637,7 +659,7 @@ def _run_protocol(task_id: str, req: GenerateRequest):
         _task_intermediate(task_id, parsed={
             "目标协议": target_name,
             "输入方式": "上传文档" if req.mode == "upload" else "预置样例",
-            "标准答案": "有（AST 比对评测）" if (gt_config and gt_config.exists()) else "无（结构完整性检查）",
+            "标准答案": "有（AST 比对评测）" if (gt_config and gt_config.exists()) else "无（参照文档覆盖度评测）",
         })
 
         out_dir = GEN_DIR / task_id
