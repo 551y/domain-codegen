@@ -102,7 +102,7 @@ function Stepper({
 
 // ---------- 中间过程输出（解析/检索等阶段产出，执行中实时展示） ----------
 
-function LiveBox({ live }: { live: { stage: string; text: string } }) {
+function LiveBox({ live }: { live: { stage: string; text: string; done?: boolean } }) {
   const ref = useRef<HTMLPreElement>(null);
   useEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
@@ -110,16 +110,20 @@ function LiveBox({ live }: { live: { stage: string; text: string } }) {
   return (
     <div>
       <div className="mb-1 flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
-        <Loader2 size={11} className="animate-spin text-primary" />
+        {live.done ? (
+          <CheckCircle2 size={11} className="text-emerald-500" />
+        ) : (
+          <Loader2 size={11} className="animate-spin text-primary" />
+        )}
         实时生成输出 · <span className="font-medium text-foreground">{live.stage}</span>
-        <span className="font-mono text-[9.5px]">LLM 流式</span>
+        <span className="font-mono text-[9.5px]">{live.done ? "已完成" : "LLM 流式"}</span>
       </div>
       <pre
         ref={ref}
         className="code-scroll max-h-[180px] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted/70 p-2.5 font-mono text-[10.5px] leading-relaxed text-foreground/90"
       >
         {live.text}
-        <span className="animate-pulse text-primary">▍</span>
+        {!live.done && <span className="animate-pulse text-primary">▍</span>}
       </pre>
     </div>
   );

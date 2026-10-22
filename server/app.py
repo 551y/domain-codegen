@@ -88,6 +88,15 @@ def _task_intermediate(task_id: str, **kw):
             t.setdefault("intermediate", {}).update(kw)
 
 
+def _live_done(task_id: str, key: str):
+    """标记一路实时输出完成（停止前端的转动/闪烁，保留已生成文本）"""
+    with _tasks_lock:
+        t = tasks.get(task_id)
+        live = (t or {}).get("intermediate", {}).get(key)
+        if isinstance(live, dict):
+            live["done"] = True
+
+
 def _live_sink(task_id: str, key: str, stage_names: list):
     """生成线程内的流式输出回调：聚合增量文本，节流后写入任务 intermediate[key]。
 
@@ -746,25 +755,36 @@ def _run_protocol(task_id: str, req: GenerateRequest):
 
             # config 通常先完成：先展示其中间产物，handler 继续跑
             t_cfg.join()
+            cfg_result = cfg_holder.get("r")
+            if "config" not in err_holder and (
+                cfg_result is None or (cfg_result.error_message and not cfg_result.config)
+            ):
+                # 模型偶发输出格式 glitch（如坏字符导致 JSON 解析失败）：自动重试一次
+                _task_update(task_id, progress=32, message="配置生成结果解析失败，自动重试一次…")
+                cfg_holder.clear()
+                t_cfg = threading.Thread(target=_gen_config, daemon=True)
+                t_cfg.start()
+                t_cfg.join()
             if "config" in err_holder:
                 raise RuntimeError(f"Config 生成失败: {err_holder['config']}")
             cfg_result = cfg_holder.get("r")
             if cfg_result is None or (cfg_result.error_message and not cfg_result.config):
                 raise RuntimeError(f"Config 生成失败: {getattr(cfg_result, 'error_message', '未知错误')}")
+            _live_done(task_id, "live_config")
             cfg_stats = {}
             if cfg_result.config:
                 cfg_stats = {
                     "命令条目数": len(cfg_result.config.get("cmd_list", []) or []),
                     "遥测条目数": len(cfg_result.config.get("tele_handler", []) or []),
                 }
-            _task_intermediate(
-                task_id,
-                retrieval={"协议知识库注入知识块": cfg_result.retrieved_chunk_count},
-                config_stats=cfg_stats,
-            )
+            retrieval_info: dict = {"协议知识库注入知识块": cfg_result.retrieved_chunk_count}
+            if not cfg_result.retrieved_chunk_count:
+                retrieval_info["提示"] = "检索注入为 0：embedding 调用可能失败（检查 Key 权限/网络），生成质量会受影响"
+            _task_intermediate(task_id, retrieval=retrieval_info, config_stats=cfg_stats)
             _task_update(task_id, progress=55, message="配置已生成，处理代码生成中…")
 
             t_hdl.join()
+            _live_done(task_id, "live_handler")
             if "handler" in err_holder:
                 raise RuntimeError(f"Handler 生成失败: {err_holder['handler']}")
         else:
@@ -816,6 +836,8 @@ def _run_protocol(task_id: str, req: GenerateRequest):
             "evaluation": evaluation, "pre_generated": pre_generated,
         })
     except Exception as e:
+        _live_done(task_id, "live_config")
+        _live_done(task_id, "live_handler")
         _task_update(task_id, status="failed", error=str(e), message=f"失败: {e}")
 
 
@@ -972,6 +994,7 @@ def _run_operator(task_id: str, req: GenerateRequest):
                 messages=messages, model=get_settings().chat_model, temperature=0.1,
             )
             gen_code = _clean_code(raw)
+            _live_done(task_id, "live")
         else:
             raise RuntimeError("上传的自有文件需要配置 LLM API Key（顶栏齿轮设置）；预置样例可直接演示")
 
@@ -988,6 +1011,7 @@ def _run_operator(task_id: str, req: GenerateRequest):
             "evaluation": evaluation, "pre_generated": pre_generated,
         })
     except Exception as e:
+        _live_done(task_id, "live")
         _task_update(task_id, status="failed", error=str(e), message=f"失败: {e}")
 
 

@@ -50,13 +50,14 @@ export interface RetrievedItem {
 export interface LiveOutput {
   stage: string;
   text: string;
+  done?: boolean;
 }
 
 export interface TaskIntermediate {
   parsed?: Record<string, string>;
   operators?: { total_calls: number; leaf_ops: string[] };
   retrieved?: RetrievedItem[];
-  retrieval?: Record<string, number>;
+  retrieval?: Record<string, number | string>;
   config_stats?: Record<string, number>;
   gen_mode?: string;
   live?: LiveOutput;
