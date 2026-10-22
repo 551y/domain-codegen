@@ -40,12 +40,29 @@ export interface SampleItem {
   domain?: string;
 }
 
+export interface RetrievedItem {
+  title: string;
+  category_label: string;
+  score: number;
+  source: string;
+}
+
+export interface TaskIntermediate {
+  parsed?: Record<string, string>;
+  operators?: { total_calls: number; leaf_ops: string[] };
+  retrieved?: RetrievedItem[];
+  retrieval?: Record<string, number>;
+  config_stats?: Record<string, number>;
+  gen_mode?: string;
+}
+
 export interface TaskState {
   exists: boolean;
   status: string;
   progress: number;
   message: string;
   error?: string | null;
+  intermediate?: TaskIntermediate;
 }
 
 export interface ResultFile {
@@ -66,7 +83,7 @@ export interface Evaluation {
   custom_symbolics?: number;
   total_calls?: number;
   retrieved_count?: number;
-  retrieved?: { title: string; category_label: string; score: number; source: string }[];
+  retrieved?: RetrievedItem[];
   line_similarity_vs_reference?: number | null;
   note?: string;
 }

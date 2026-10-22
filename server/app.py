@@ -69,6 +69,7 @@ def _task_create(kind: str) -> str:
         tasks[task_id] = {
             "kind": kind, "status": "pending", "progress": 0,
             "message": "排队中", "result": None, "error": None,
+            "intermediate": {},
         }
     return task_id
 
@@ -77,6 +78,14 @@ def _task_update(task_id: str, **kw):
     with _tasks_lock:
         if task_id in tasks:
             tasks[task_id].update(kw)
+
+
+def _task_intermediate(task_id: str, **kw):
+    """追加任务的中间过程数据（解析/检索等阶段的产出，供前端在执行过程中实时展示）"""
+    with _tasks_lock:
+        t = tasks.get(task_id)
+        if t is not None:
+            t.setdefault("intermediate", {}).update(kw)
 
 
 def _llm_available() -> bool:
@@ -489,6 +498,12 @@ def _run_protocol(task_id: str, req: GenerateRequest):
             raise RuntimeError("协议知识库不存在")
         kb_dir = kb_dirs[0]
 
+        _task_intermediate(task_id, parsed={
+            "目标协议": target_name,
+            "输入方式": "上传文档" if req.mode == "upload" else "预置样例",
+            "标准答案": "有（AST 比对评测）" if (gt_config and gt_config.exists()) else "无（结构完整性检查）",
+        })
+
         out_dir = GEN_DIR / task_id
         out_dir.mkdir(parents=True, exist_ok=True)
         pre_generated = False
@@ -498,6 +513,7 @@ def _run_protocol(task_id: str, req: GenerateRequest):
             # 预置样例：永远走预生成回放（快且稳），不调 LLM
             pre_generated = True
             _task_update(task_id, progress=30, message="载入预生成结果（真实流水线历史产物）…")
+            _task_intermediate(task_id, gen_mode="预生成回放（真实流水线历史产物）")
             shutil.copytree(pre, out_dir, dirs_exist_ok=True)
             time.sleep(0.5)
             _task_update(task_id, progress=60, message="载入预生成结果…")
@@ -515,6 +531,17 @@ def _run_protocol(task_id: str, req: GenerateRequest):
             )
             if cfg_result.error_message and not cfg_result.config:
                 raise RuntimeError(f"Config 生成失败: {cfg_result.error_message}")
+            cfg_stats = {}
+            if cfg_result.config:
+                cfg_stats = {
+                    "命令条目数": len(cfg_result.config.get("cmd_list", []) or []),
+                    "遥测条目数": len(cfg_result.config.get("tele_handler", []) or []),
+                }
+            _task_intermediate(
+                task_id, gen_mode="LLM 在线生成",
+                retrieval={"协议知识库注入知识块": cfg_result.retrieved_chunk_count},
+                config_stats=cfg_stats,
+            )
 
             _task_update(task_id, progress=60, message="LLM 生成处理代码（真实调用，两阶段约 5–6 分钟）…")
             HandlerGenerator().generate(
@@ -699,16 +726,24 @@ def _run_operator(task_id: str, req: GenerateRequest):
         leaf_ops = sorted({c.split(".")[-1] for c in analysis["calls"]})
         query = f"{name} PyTorch ONNX export " + " ".join(leaf_ops[:12])
         retrieved = _onnx_retrieve(query, top_k=8)
+        _task_intermediate(
+            task_id,
+            operators={"total_calls": analysis["total_calls"], "leaf_ops": leaf_ops},
+            retrieved=[{"title": r["title"], "category_label": r["category_label"],
+                        "score": r["score"], "source": r["source"]} for r in retrieved],
+        )
 
         pre_generated = False
         if req.mode == "sample" and preset_file:
             # 预置样例：永远走预生成回放（真实流水线的历史产物），不调 LLM
             pre_generated = True
             _task_update(task_id, progress=45, message="载入预生成导出脚本（真实流水线历史产物）…")
+            _task_intermediate(task_id, gen_mode="预生成回放（真实流水线历史产物）")
             gen_code = preset_file.read_text(encoding="utf-8", errors="replace")
             time.sleep(0.5)
         elif _llm_available():
             # 上传的自有 case：检索 → LLM 真实生成
+            _task_intermediate(task_id, gen_mode="LLM 在线生成")
             _task_update(task_id, progress=45, message=f"LLM 生成 ONNX 导出代码（真实调用，约 1–2 分钟，注入 {len(retrieved)} 条知识）…")
             from herta.config import get_settings
             from herta.llm.client import BigModelClient
