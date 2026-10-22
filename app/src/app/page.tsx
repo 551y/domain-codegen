@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   FileCode2,
   FileText,
@@ -196,6 +197,7 @@ export default function WorkbenchPage() {
   const [submitErr, setSubmitErr] = useState("");
   const [tasks, setTasks] = useState<Record<string, TrackedTask>>({});
   const [focusId, setFocusId] = useState<string | null>(null);
+  const [inputOpen, setInputOpen] = useState(true);
   const [activeFile, setActiveFile] = useState(0);
   const [showHits, setShowHits] = useState(false);
   const tasksRef = useRef<Record<string, TrackedTask>>({});
@@ -250,9 +252,7 @@ export default function WorkbenchPage() {
   useEffect(() => {
     setActiveFile(0);
     setShowHits(false);
-  }, [focusId]);
-
-  const handleUpload = async (file: File) => {
+  }, [focusId]);  const handleUpload = async (file: File) => {
     if (!kb) return;
     setUploading(true);
     setUploadErr("");
@@ -317,6 +317,12 @@ export default function WorkbenchPage() {
   const anyRunning = sortedTasks.some((t) => isUnfinished(t.state.status));
   const anyResult = sortedTasks.some((t) => t.result);
   const currentStage = focused ? stageIndex(focused.state.progress) : 0;
+
+  // 出结果时自动折叠输入区；聚焦运行中任务或无聚焦时自动展开
+  useEffect(() => {
+    if (focusedResult) setInputOpen(false);
+    else setInputOpen(true);
+  }, [focusedResult, focusId]);
 
   return (
     <div className="mx-auto w-full max-w-[1100px] space-y-5 px-6 py-6">
@@ -421,8 +427,19 @@ export default function WorkbenchPage() {
         </section>
       )}
 
-      {/* 第二步：输入（始终可见——在线生成运行期间仍可操作离线样例） */}
-      {kb && (
+      {/* 第二步：输入（结果展示时折叠为摘要条，点击展开；在线生成期间仍可操作离线样例） */}
+      {kb && !inputOpen && (
+        <button
+          onClick={() => setInputOpen(true)}
+          className="flex w-full items-center gap-2.5 rounded-xl border border-border bg-card px-4 py-2.5 text-left transition-colors hover:border-primary/40"
+        >
+          <ChevronRight size={13} className="text-muted-foreground" />
+          <span className="text-[12.5px] font-medium text-foreground/80">输入</span>
+          <span className="font-mono text-[11.5px] text-muted-foreground">{source?.label || "未选择"}</span>
+          <span className="ml-auto font-mono text-[10px] text-muted-foreground/70">点击展开修改</span>
+        </button>
+      )}
+      {kb && inputOpen && (
         <section className="rounded-2xl border border-border bg-card p-5">
           <div className="mb-3 flex items-center gap-2">
             <FileText size={15} className="text-primary" />
