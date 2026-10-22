@@ -161,6 +161,7 @@ class KnowledgeRetriever:
         query: str,
         top_k: int = 5,
         min_score: Optional[float] = None,
+        query_vector: Optional[List[float]] = None,
     ) -> List[RetrievedChunk]:
         """
         检索相关知识库片段
@@ -187,13 +188,14 @@ class KnowledgeRetriever:
 
         logger.info(f"执行检索: query='{query[:50]}...', top_k={top_k}")
 
-        # 1. 生成 query embedding
-        try:
-            query_vector = self.llm_client.embed_query(query)
-            logger.debug(f"Query embedding 生成完成: dimension={len(query_vector)}")
-        except Exception as e:
-            logger.error(f"生成 query embedding 失败: {e}")
-            raise
+        # 1. 生成 query embedding（demo 集成优化：retrieve_multi 批量预生成后直接传入，跳过单次调用）
+        if query_vector is None:
+            try:
+                query_vector = self.llm_client.embed_query(query)
+                logger.debug(f"Query embedding 生成完成: dimension={len(query_vector)}")
+            except Exception as e:
+                logger.error(f"生成 query embedding 失败: {e}")
+                raise
 
         # 2. 向量检索
         try:
@@ -289,12 +291,22 @@ class KnowledgeRetriever:
         if not self._loaded:
             self.load()
 
+        # demo 集成优化：所有 query 的 embedding 合并为一次批量 API 调用（N 次往返 → 1 次），
+        # 失败则回退为逐 query 单独 embedding（原行为）
+        query_vectors: List[Optional[List[float]]] = [None] * len(queries)
+        if queries:
+            try:
+                query_vectors = list(self.llm_client.embed_texts(list(queries)))
+                logger.info(f"批量 query embedding 完成: {len(query_vectors)} 条")
+            except Exception as e:
+                logger.warning(f"批量 query embedding 失败，回退逐条生成: {e}")
+
         all_results: Dict[str, RetrievedChunk] = {}
 
         for i, query in enumerate(queries):
             logger.info(f"Multi-retrieval query {i+1}/{len(queries)}: '{query[:50]}...'")
             try:
-                results = self.retrieve_with_rerank(query, top_k=top_k_per_query)
+                results = self.retrieve_with_rerank(query, top_k=top_k_per_query, query_vector=query_vectors[i])
                 for chunk in results:
                     if deduplicate and chunk.chunk_id in all_results:
                         existing = all_results[chunk.chunk_id]
@@ -318,6 +330,7 @@ class KnowledgeRetriever:
         query: str,
         top_k: int = 5,
         min_score: float = 0.2,
+        query_vector: Optional[List[float]] = None,
     ) -> List[RetrievedChunk]:
         """
         检索并重排序
@@ -340,7 +353,7 @@ class KnowledgeRetriever:
 
         # 过度检索候选
         candidate_count = min(top_k * 3, self.vector_store.vector_count if self.vector_store else top_k)
-        candidates = self.retrieve(query, top_k=candidate_count)
+        candidates = self.retrieve(query, top_k=candidate_count, query_vector=query_vector)
 
         if not candidates:
             return []
