@@ -55,8 +55,8 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
 }
 
 function Wait-Health {
-    param($Url, $Name)
-    for ($i = 0; $i -lt 30; $i++) {
+    param($Url, $Name, $LogBase)
+    for ($i = 0; $i -lt 60; $i++) {
         try {
             $null = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2
             Write-Host "    $Name 就绪 ✓"
@@ -65,7 +65,13 @@ function Wait-Health {
             Start-Sleep -Seconds 1
         }
     }
-    Write-Host "!! $Name 健康检查超时，查看 $LOG_DIR"
+    Write-Host "!! $Name 健康检查超时，日志尾部如下："
+    foreach ($f in @("$LogBase.err.log", "$LogBase.log")) {
+        if ((Test-Path $f) -and (Get-Item $f).Length -gt 0) {
+            Write-Host "----- $f (最后 30 行) -----"
+            Get-Content $f -Tail 30
+        }
+    }
     exit 1
 }
 
@@ -74,12 +80,12 @@ function Wait-Health {
 # 易被 Windows 应用程序控制策略（Smart App Control / AppLocker）拦截
 Write-Host "==> 启动编排后端 (8200)..."
 $serverDir = Join-Path $PLATFORM_DIR "server"
-$proc = Start-Process -FilePath "python" -ArgumentList "-m", "uvicorn", "app:app", "--port", "8200" `
+$proc = Start-Process -FilePath "python" -ArgumentList "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8200" `
     -WorkingDirectory $serverDir -WindowStyle Hidden -PassThru `
     -RedirectStandardOutput (Join-Path $LOG_DIR "server.log") `
     -RedirectStandardError (Join-Path $LOG_DIR "server.err.log")
 $proc.Id | Out-File (Join-Path $LOG_DIR "server.pid") -Encoding ascii
-Wait-Health "http://localhost:8200/api/health" "编排后端"
+Wait-Health "http://127.0.0.1:8200/api/health" "编排后端" (Join-Path $LOG_DIR "server")
 
 # ---- 前端（3200）：直接用 node 拉起 next，保证拿到可停止的真实 PID ----
 Write-Host "==> 启动前端 (3200)..."
@@ -94,7 +100,7 @@ $proc = Start-Process -FilePath "node" -ArgumentList "`"$nextBin`"", "start", "-
     -RedirectStandardOutput (Join-Path $LOG_DIR "frontend.log") `
     -RedirectStandardError (Join-Path $LOG_DIR "frontend.err.log")
 $proc.Id | Out-File (Join-Path $LOG_DIR "frontend.pid") -Encoding ascii
-Wait-Health "http://localhost:3200/" "前端"
+Wait-Health "http://127.0.0.1:3200/" "前端" (Join-Path $LOG_DIR "frontend")
 
 Write-Host ""
 Write-Host "============================================================"
