@@ -72,4 +72,5 @@ Windows 版日志为 `logs/server.log` + `logs/server.err.log`（前端同理，
 |---|---|
 | 生成失败提示未配置 Key | 预期（离线），换预置样例或配置 Key |
 | 端口占用 | `./stop.sh`（Windows：`.\stop.ps1`）后重起 |
+| Windows 报「应用程序控制策略已阻止此文件」 | 脚本已改用 `python -m uvicorn` 启动规避（pip 的 uvicorn.exe 启动器无签名易被拦）；若 node 也被拦，换 Node.js 官网 LTS 安装包重装 |
 | 页面空数据 | `curl localhost:8200/api/health` 确认后端 |

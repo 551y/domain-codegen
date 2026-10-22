@@ -20,25 +20,38 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-# ---- 激活 conda 环境（优先 demo，失败回退 base；找不到 conda 则用当前环境）----
-$condaExe = $null
-foreach ($cand in @(
-    "$HOME\miniconda3\Scripts\conda.exe",
-    "$HOME\anaconda3\Scripts\conda.exe",
-    "C:\ProgramData\miniconda3\Scripts\conda.exe",
-    "C:\ProgramData\anaconda3\Scripts\conda.exe")) {
-    if (Test-Path $cand) { $condaExe = $cand; break }
-}
-if (-not $condaExe) {
-    $cmd = Get-Command conda.exe -ErrorAction SilentlyContinue
-    if ($cmd) { $condaExe = $cmd.Source }
-}
-if ($condaExe) {
-    (& $condaExe "shell.powershell" "hook") | Out-String | Invoke-Expression
-    conda activate demo
-    if ($LASTEXITCODE -ne 0) { conda activate base }
+# ---- 确保 demo conda 环境已激活 ----
+if ($env:CONDA_DEFAULT_ENV -eq "demo") {
+    Write-Host "==> 使用已激活的 conda 环境: demo"
 } else {
-    Write-Host "!! 未找到 conda，将使用当前 Python 环境（需已安装依赖）"
+    if (Get-Command conda -ErrorAction SilentlyContinue) {
+        conda activate demo 2>$null
+    }
+    if ($env:CONDA_DEFAULT_ENV -ne "demo") {
+        $condaExe = $null
+        foreach ($cand in @(
+            "$HOME\miniconda3\Scripts\conda.exe",
+            "$HOME\anaconda3\Scripts\conda.exe",
+            "$HOME\AppData\Local\miniconda3\Scripts\conda.exe",
+            "$HOME\AppData\Local\anaconda3\Scripts\conda.exe",
+            "C:\ProgramData\miniconda3\Scripts\conda.exe",
+            "C:\ProgramData\anaconda3\Scripts\conda.exe")) {
+            if (Test-Path $cand) { $condaExe = $cand; break }
+        }
+        if ($condaExe) {
+            (& $condaExe "shell.powershell" "hook") | Out-String | Invoke-Expression
+            conda activate demo 2>$null
+            if ($env:CONDA_DEFAULT_ENV -ne "demo") { conda activate base }
+        } else {
+            Write-Host "!! 未找到 conda，将使用当前 Python 环境（需已安装依赖）"
+        }
+    }
+}
+
+# ---- 检查 python ----
+if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+    Write-Host "!! 未找到 python，请先激活 demo 环境（或自行安装依赖后重试）"
+    exit 1
 }
 
 function Wait-Health {
@@ -57,9 +70,11 @@ function Wait-Health {
 }
 
 # ---- 后端（8200）----
+# 用 python -m uvicorn 而非 uvicorn.exe：pip 生成的入口启动器无数字签名，
+# 易被 Windows 应用程序控制策略（Smart App Control / AppLocker）拦截
 Write-Host "==> 启动编排后端 (8200)..."
 $serverDir = Join-Path $PLATFORM_DIR "server"
-$proc = Start-Process -FilePath "uvicorn" -ArgumentList "app:app", "--port", "8200" `
+$proc = Start-Process -FilePath "python" -ArgumentList "-m", "uvicorn", "app:app", "--port", "8200" `
     -WorkingDirectory $serverDir -WindowStyle Hidden -PassThru `
     -RedirectStandardOutput (Join-Path $LOG_DIR "server.log") `
     -RedirectStandardError (Join-Path $LOG_DIR "server.err.log")
