@@ -314,7 +314,6 @@ export default function WorkbenchPage() {
   const focused = focusId ? tasks[focusId] : undefined;
   const focusedRunning = focused && isUnfinished(focused.state.status);
   const focusedResult = focused?.result;
-  const anyRunning = sortedTasks.some((t) => isUnfinished(t.state.status));
   const anyResult = sortedTasks.some((t) => t.result);
   const currentStage = focused ? stageIndex(focused.state.progress) : 0;
 
@@ -328,7 +327,7 @@ export default function WorkbenchPage() {
     <div className="mx-auto w-full max-w-[1100px] space-y-5 px-6 py-6">
       {/* 步骤条（选择场景后固定于顶部） */}
       {kb && (
-        <Stepper kb={kb} source={!!source} active={anyRunning || !!focusedRunning} hasResult={anyResult} onReset={reset} />
+        <Stepper kb={kb} source={!!source} active={sortedTasks.length > 0} hasResult={anyResult} onReset={reset} />
       )}
 
       {/* 第一步：选择知识库 */}
@@ -340,7 +339,7 @@ export default function WorkbenchPage() {
               两类典型无人系统代码任务：星务协议处理注入协议知识库，
               模型ONNX部署注入 ONNX 算子知识库。
             </p>
-            <Stepper kb={kb} source={!!source} active={anyRunning} hasResult={anyResult} className="mt-5" />
+            <Stepper kb={kb} source={!!source} active={sortedTasks.length > 0} hasResult={anyResult} className="mt-5" />
           </div>
           <div className="grid gap-6 lg:grid-cols-2">
             {kbs.map((k) => {
