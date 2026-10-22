@@ -7,7 +7,7 @@
     "data\\source_proto\\gdwx\\gdwx_handler.c",
     "data\\source_proto\\gdwx\\internal_handler.c"
   ],
-  "chunk_strategy": "direct",
+  "chunk_strategy": "semantic",
   "chunk_size": 500,
   "chunk_overlap": 50,
   "embedding_model": "embedding-3",

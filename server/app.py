@@ -677,18 +677,51 @@ def _run_protocol(task_id: str, req: GenerateRequest):
             _task_update(task_id, progress=60, message="载入预生成结果…")
             time.sleep(0.5)
         elif _llm_available():
-            # 上传的自有 case：真实生成（解析 → 检索 → LLM 两阶段生成）
+            # 上传的自有 case：真实生成（解析 → 检索 → LLM 生成）
+            # config 与 handler 两条生成链相互独立（均只依赖文档+知识库，互不读取对方产物），
+            # 并行执行可将 wall-clock 从两者之和降到两者之较长者
             from herta.generator.config_generator import ConfigGenerator
             from herta.generator.handler_generator import HandlerGenerator
 
             _task_update(task_id, progress=15, message="检索协议知识库…")
-            _task_update(task_id, progress=30, message="LLM 生成配置（真实调用，约 2–3 分钟）…")
-            cfg_result = ConfigGenerator().generate(
-                target_doc_path=doc_path, source_kb_dir=kb_dir,
-                target_name=target_name, top_k=req.top_k, output_dir=out_dir,
-            )
-            if cfg_result.error_message and not cfg_result.config:
-                raise RuntimeError(f"Config 生成失败: {cfg_result.error_message}")
+            _task_intermediate(task_id, gen_mode="LLM 在线生成")
+
+            cfg_holder: dict = {}
+            err_holder: dict = {}
+
+            def _gen_config():
+                try:
+                    cfg_holder["r"] = ConfigGenerator().generate(
+                        target_doc_path=doc_path, source_kb_dir=kb_dir,
+                        target_name=target_name, top_k=req.top_k, output_dir=out_dir,
+                    )
+                except Exception as e:
+                    err_holder["config"] = e
+
+            def _gen_handler():
+                try:
+                    HandlerGenerator().generate(
+                        target_doc_path=doc_path, source_kb_dir=kb_dir,
+                        target_name=target_name, top_k=req.top_k, output_dir=out_dir,
+                        save_plan=True, intermediate_dir=out_dir / "intermediate",
+                    )
+                except Exception as e:
+                    err_holder["handler"] = e
+
+            _task_update(task_id, progress=30,
+                         message="LLM 并行生成配置与处理代码（真实调用，通常数分钟）…")
+            t_cfg = threading.Thread(target=_gen_config, daemon=True)
+            t_hdl = threading.Thread(target=_gen_handler, daemon=True)
+            t_cfg.start()
+            t_hdl.start()
+
+            # config 通常先完成：先展示其中间产物，handler 继续跑
+            t_cfg.join()
+            if "config" in err_holder:
+                raise RuntimeError(f"Config 生成失败: {err_holder['config']}")
+            cfg_result = cfg_holder.get("r")
+            if cfg_result is None or (cfg_result.error_message and not cfg_result.config):
+                raise RuntimeError(f"Config 生成失败: {getattr(cfg_result, 'error_message', '未知错误')}")
             cfg_stats = {}
             if cfg_result.config:
                 cfg_stats = {
@@ -696,17 +729,15 @@ def _run_protocol(task_id: str, req: GenerateRequest):
                     "遥测条目数": len(cfg_result.config.get("tele_handler", []) or []),
                 }
             _task_intermediate(
-                task_id, gen_mode="LLM 在线生成",
+                task_id,
                 retrieval={"协议知识库注入知识块": cfg_result.retrieved_chunk_count},
                 config_stats=cfg_stats,
             )
+            _task_update(task_id, progress=55, message="配置已生成，处理代码生成中…")
 
-            _task_update(task_id, progress=60, message="LLM 生成处理代码（真实调用，两阶段约 5–6 分钟）…")
-            HandlerGenerator().generate(
-                target_doc_path=doc_path, source_kb_dir=kb_dir,
-                target_name=target_name, top_k=req.top_k, output_dir=out_dir,
-                save_plan=True, intermediate_dir=out_dir / "intermediate",
-            )
+            t_hdl.join()
+            if "handler" in err_holder:
+                raise RuntimeError(f"Handler 生成失败: {err_holder['handler']}")
         else:
             raise RuntimeError("上传的自有文件需要配置 LLM API Key（顶栏齿轮设置）；预置样例可直接演示")
 
