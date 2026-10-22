@@ -309,6 +309,142 @@ def _cached_protocol_eval(gen_config: Path, gt_config: Path, gen_handler: Path, 
     return evaluation
 
 
+def _norm_cmd_token(v: str):
+    """命令码归一化：可解析为整数（0x 十六进制/十进制）按整数比较，否则按归一化字符串"""
+    s = str(v).strip().upper().replace("0X", "0x")
+    try:
+        return ("i", int(s, 0))
+    except (ValueError, TypeError):
+        return ("s", re.sub(r"[^0-9A-Z]", "", s))
+
+
+def _norm_ident(v: str) -> str:
+    """标识符归一化（函数名/信号名模糊匹配用）"""
+    return re.sub(r"[\s_\-]+", "", str(v).strip().lower())
+
+
+def _doc_protocol_eval(doc_path: Path, config_obj: dict, gen_handler: Path) -> Optional[dict]:
+    """上传协议（无人工标准答案）的参照评测：
+    从上传文档的表格中确定性提取 命令码 / 遥测信号名 / 处理函数名 作为参照，
+    对生成产物做覆盖度与结构完整性评测。
+    文档中未提取到结构化表格时返回 None（调用方回退为基础结构检查）。"""
+    from docx import Document
+
+    doc_cmds, doc_signals, doc_funcs = set(), set(), set()
+    try:
+        document = Document(str(doc_path))
+        for table in document.tables:
+            if not table.rows:
+                continue
+            header = [c.text.strip() for c in table.rows[0].cells]
+            htext = " ".join(header)
+
+            def col(exact=(), loose=()):
+                for i, h in enumerate(header):
+                    if h.lower() in [k.lower() for k in exact]:
+                        return i
+                for i, h in enumerate(header):
+                    if any(k in h for k in loose):
+                        return i
+                return None
+
+            is_cmd_table = any(k in htext for k in ("命令", "指令", "遥控"))
+            is_tele_table = any(k in htext for k in ("位段", "字节", "换算", "遥测", "信号"))
+            cmd_col = col(("cmd", "命令码", "指令码", "命令字"), ("命令码", "指令码")) if is_cmd_table else None
+            sig_col = col(("信号名称", "参数名称", "信号"), ("信号名称", "参数名称")) if is_tele_table else None
+            func_col = col(("处理函数名", "函数名", "handler"), ("函数名", "handler"))
+
+            for row in table.rows[1:]:
+                cells = [c.text.strip() for c in row.cells]
+                if cmd_col is not None and cmd_col < len(cells) and cells[cmd_col]:
+                    doc_cmds.add(_norm_cmd_token(cells[cmd_col]))
+                if sig_col is not None and sig_col < len(cells) and cells[sig_col]:
+                    doc_signals.add(cells[sig_col].strip())
+                if func_col is not None and func_col < len(cells) and cells[func_col]:
+                    doc_funcs.add(_norm_ident(cells[func_col]))
+    except Exception:
+        pass
+
+    if not (doc_cmds or doc_signals or doc_funcs):
+        return None
+
+    gen_cmds = {_norm_cmd_token(e.get("cmd")) for e in config_obj.get("cmd_list", [])
+                if isinstance(e, dict) and e.get("cmd") is not None}
+    gen_tele_entries = [e for e in config_obj.get("tele_handler", []) if isinstance(e, dict)]
+    gen_tele = []
+    for e in gen_tele_entries:
+        gen_tele.extend(str(e.get(k) or "") for k in ("desc", "name", "handler"))
+    gen_funcs = set()
+    syntax_ok = False
+    if gen_handler.exists():
+        try:
+            from herta.compare import parse_c_functions
+            gen_funcs = {_norm_ident(f.name) for f in parse_c_functions(str(gen_handler))}
+            syntax_ok = len(gen_funcs) > 0
+        except Exception:
+            syntax_ok = False
+
+    from rapidfuzz import fuzz
+
+    def _fuzzy_hits(doc_names, gen_names):
+        gen_norm = [_norm_ident(g) for g in gen_names if g]
+        hits = 0
+        for d in doc_names:
+            dn = _norm_ident(d)
+            if dn and any(dn == gn or dn in gn or gn in dn or fuzz.ratio(dn, gn) >= 88 for gn in gen_norm):
+                hits += 1
+        return hits
+
+    cmd_hits = len(doc_cmds & gen_cmds)
+    tele_hits = _fuzzy_hits(doc_signals, gen_tele)
+    func_hits = _fuzzy_hits(doc_funcs, gen_funcs)
+
+    def _f1(hits, doc_n, gen_n):
+        """覆盖度 F1：既看文档条目被覆盖的比例，也防止『多生成凑命中』的水分"""
+        if not doc_n:
+            return None
+        p = hits / max(gen_n, 1)
+        r = hits / doc_n
+        return round(2 * p * r / (p + r) * 100, 1) if (p + r) else 0.0
+
+    def _pct(a, b):
+        return round(a / b * 100, 1) if b else None
+
+    scores = {}
+    if doc_cmds:
+        scores["命令覆盖率"] = _f1(cmd_hits, len(doc_cmds), len(gen_cmds))
+    if doc_signals:
+        scores["遥测覆盖率"] = _f1(tele_hits, len(doc_signals), len(gen_tele_entries))
+    if doc_funcs:
+        scores["处理函数覆盖率"] = _f1(func_hits, len(doc_funcs), len(gen_funcs))
+    entries = list(config_obj.get("cmd_list", [])) + list(config_obj.get("tele_handler", []))
+    if entries:
+        ok = sum(1 for e in entries
+                 if isinstance(e, dict) and e.get("handler") and (e.get("desc") or e.get("cmd") is not None))
+        scores["字段完整性"] = _pct(ok, len(entries))
+    if gen_handler.exists():
+        scores["Handler 语法可解析"] = 100.0 if syntax_ok else 0.0
+
+    weights = {"命令覆盖率": 0.3, "遥测覆盖率": 0.25, "处理函数覆盖率": 0.3, "字段完整性": 0.15}
+    wsum = sum(w for k, w in weights.items() if k in scores)
+    if wsum:
+        scores["综合（参照文档）"] = round(
+            sum(scores[k] * weights[k] for k in weights if k in scores) / wsum, 1)
+
+    return {
+        "kind": "document",
+        "scores": scores,
+        "stats": {
+            "文档命令/生成/命中": f"{len(doc_cmds)}/{len(gen_cmds)}/{cmd_hits}",
+            "文档遥测/生成/命中": f"{len(doc_signals)}/{len(gen_tele_entries)}/{tele_hits}",
+            "文档函数/生成/命中": f"{len(doc_funcs)}/{len(gen_funcs)}/{func_hits}",
+        },
+        "functions": {"真实函数": len(doc_funcs), "生成函数": len(gen_funcs), "成功匹配": func_hits},
+        "note": "无人工标准答案：以「上传文档表格中提取的命令码/遥测信号/处理函数名」为参照的覆盖度评测，"
+                "口径不同于预置样例的 ground truth AST 比对，仅供参考",
+    }
+
+
 # ---------------------------------------------------------------------------
 # API：基础信息
 # ---------------------------------------------------------------------------
@@ -577,7 +713,8 @@ def _run_protocol(task_id: str, req: GenerateRequest):
         if gt_config and gt_config.exists() and gen_config.exists() and gt_handler.exists() and gen_handler.exists():
             evaluation = _cached_protocol_eval(gen_config, gt_config, gen_handler, gt_handler)
         elif config_obj:
-            evaluation = {
+            # 无 ground truth：优先以「上传文档表格提取」为参照做覆盖度评测，提取不到再回退结构检查
+            evaluation = _doc_protocol_eval(doc_path, config_obj, gen_handler) or {
                 "kind": "structural",
                 "scores": {
                     "JSON 结构合法": 100.0,
