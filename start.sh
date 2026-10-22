@@ -28,7 +28,8 @@ fi
 if ! python -c "import herta" 2>/dev/null; then
   echo "============================================================"
   echo "!! 当前环境未安装 herta 引擎：上传文件的真实生成将失败"
-  echo "   修复：pip install -e ./vendor/herta"
+  echo "   当前 Python: $(python -c 'import sys; print(sys.executable)')"
+  echo "   修复（务必装进这同一个环境）：pip install -e ./vendor/herta"
   echo "   （预置样例演示不受影响，继续启动）"
   echo "============================================================"
 fi
