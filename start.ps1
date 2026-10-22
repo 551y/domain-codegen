@@ -54,6 +54,16 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
+# ---- 检查 herta 引擎（上传文件的真实生成依赖；预置样例回放与缓存评测不依赖）----
+python -c "import herta" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "============================================================"
+    Write-Host "!! 当前环境未安装 herta 引擎：上传文件的真实生成将失败"
+    Write-Host "   修复：pip install -e ./vendor/herta"
+    Write-Host "   （预置样例演示不受影响，继续启动）"
+    Write-Host "============================================================"
+}
+
 function Wait-Health {
     param($Url, $Name, $LogBase)
     for ($i = 0; $i -lt 60; $i++) {

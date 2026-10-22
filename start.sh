@@ -24,6 +24,15 @@ if [ -n "$CONDA_SH" ]; then
   conda activate demo 2>/dev/null || conda activate base
 fi
 
+# herta 引擎自检（上传文件的真实生成依赖；预置样例回放与缓存评测不依赖）
+if ! python -c "import herta" 2>/dev/null; then
+  echo "============================================================"
+  echo "!! 当前环境未安装 herta 引擎：上传文件的真实生成将失败"
+  echo "   修复：pip install -e ./vendor/herta"
+  echo "   （预置样例演示不受影响，继续启动）"
+  echo "============================================================"
+fi
+
 echo "==> 启动编排后端 (8200)..."
 cd "$PLATFORM_DIR/server"
 nohup uvicorn app:app --port 8200 > "$LOG_DIR/server.log" 2>&1 &
