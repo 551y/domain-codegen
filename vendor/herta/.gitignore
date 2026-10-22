@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environment variables
+.env
+.env.local
+
+# Project specific
+.cache/
+# 运行产物默认忽略，但放行示例评测结果与预构建知识库（供前端开箱演示）
+output/*
+!output/generated/
+output/generated/*/
+!output/generated/dllg/
+!output/reports/
+output/reports/*/
+!output/reports/dllg/
+!output/visualization/
+output/visualization/*/
+!output/visualization/gdwx/
+data/kb/*
+!data/kb/gdwx/
+*.log
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+
+# Claude Code
+.claude/
+
+# Screenshots
+*.png
+!frontend/public/**
+
+# Template reference
+_template_ref/
+
+# OS
+.DS_Store
+Thumbs.db

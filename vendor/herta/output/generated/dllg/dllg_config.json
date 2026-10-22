@@ -1,0 +1,281 @@
+{
+  "version": "1.0",
+  "author": "herta",
+  "start_index": 1,
+  "cmd_list": [
+    {
+      "desc": "dllg bus control",
+      "cmd": 1,
+      "handler": "dllg_bus_control"
+    },
+    {
+      "desc": "dllg eng param collect",
+      "cmd": 2,
+      "handler": "dllg_eng_param_collect"
+    },
+    {
+      "desc": "dllg app manager",
+      "cmd": 3,
+      "handler": "dllg_app_manager"
+    },
+    {
+      "desc": "dllg upload manager",
+      "cmd": 4,
+      "handler": "dllg_upload_manager"
+    },
+    {
+      "desc": "dllg data trans",
+      "cmd": 6,
+      "handler": "dllg_data_trans"
+    },
+    {
+      "desc": "dllg data clear",
+      "cmd": 7,
+      "handler": "dllg_data_clear"
+    },
+    {
+      "desc": "dllg set power mode",
+      "cmd": 8,
+      "handler": "dllg_set_power_mode"
+    },
+    {
+      "desc": "dllg set task",
+      "cmd": 9,
+      "handler": "dllg_set_task"
+    },
+    {
+      "desc": "dllg orbit param 1",
+      "cmd": 10,
+      "handler": "dllg_orbit_param_1"
+    },
+    {
+      "desc": "dllg orbit param 2",
+      "cmd": 11,
+      "handler": "dllg_orbit_param_2"
+    },
+    {
+      "desc": "dllg orbit param 3",
+      "cmd": 12,
+      "handler": "dllg_orbit_param_3"
+    },
+    {
+      "desc": "dllg orbit param 4",
+      "cmd": 13,
+      "handler": "dllg_orbit_param_4"
+    },
+    {
+      "desc": "dllg orbit param 5",
+      "cmd": 14,
+      "handler": "dllg_orbit_param_5"
+    },
+    {
+      "desc": "dllg orbit param 6",
+      "cmd": 15,
+      "handler": "dllg_orbit_param_6"
+    },
+    {
+      "desc": "dllg orbit param 7",
+      "cmd": 16,
+      "handler": "dllg_orbit_param_7"
+    }
+  ],
+  "tele_handler": [
+    {
+      "desc": "dllg_tele_frame_00",
+      "len": 8,
+      "handler": "dllg_tele_frame_00"
+    },
+    {
+      "desc": "dllg_tele_frame_01",
+      "len": 8,
+      "handler": "dllg_tele_frame_01"
+    },
+    {
+      "desc": "dllg_tele_frame_02",
+      "len": 8,
+      "handler": "dllg_tele_frame_02"
+    },
+    {
+      "desc": "dllg_tele_frame_03",
+      "len": 8,
+      "handler": "dllg_tele_frame_03"
+    },
+    {
+      "desc": "dllg_tele_frame_04",
+      "len": 8,
+      "handler": "dllg_tele_frame_04"
+    },
+    {
+      "desc": "dllg_tele_frame_05",
+      "len": 8,
+      "handler": "dllg_tele_frame_05"
+    },
+    {
+      "desc": "dllg_tele_frame_06",
+      "len": 8,
+      "handler": "dllg_tele_frame_06"
+    },
+    {
+      "desc": "dllg_tele_frame_07",
+      "len": 8,
+      "handler": "dllg_tele_frame_07"
+    },
+    {
+      "desc": "dllg_tele_frame_08",
+      "len": 8,
+      "handler": "dllg_tele_frame_08"
+    },
+    {
+      "desc": "dllg_tele_frame_09",
+      "len": 8,
+      "handler": "dllg_tele_frame_09"
+    },
+    {
+      "desc": "dllg_tele_frame_10",
+      "len": 8,
+      "handler": "dllg_tele_frame_10"
+    },
+    {
+      "desc": "dllg_tele_frame_11",
+      "len": 8,
+      "handler": "dllg_tele_frame_11"
+    },
+    {
+      "desc": "dllg_tele_frame_12",
+      "len": 8,
+      "handler": "dllg_tele_frame_12"
+    },
+    {
+      "desc": "dllg_tele_frame_13",
+      "len": 8,
+      "handler": "dllg_tele_frame_13"
+    },
+    {
+      "desc": "dllg_tele_frame_14",
+      "len": 8,
+      "handler": "dllg_tele_frame_14"
+    },
+    {
+      "desc": "dllg_tele_frame_15",
+      "len": 8,
+      "handler": "dllg_tele_frame_15"
+    },
+    {
+      "desc": "dllg_tele_frame_16",
+      "len": 8,
+      "handler": "dllg_tele_frame_16"
+    },
+    {
+      "desc": "dllg_tele_frame_17",
+      "len": 8,
+      "handler": "dllg_tele_frame_17"
+    },
+    {
+      "desc": "dllg_tele_frame_18",
+      "len": 8,
+      "handler": "dllg_tele_frame_18"
+    },
+    {
+      "desc": "dllg_tele_frame_19",
+      "len": 8,
+      "handler": "dllg_tele_frame_19"
+    },
+    {
+      "desc": "dllg_tele_frame_20",
+      "len": 8,
+      "handler": "dllg_tele_frame_20"
+    },
+    {
+      "desc": "dllg_tele_frame_21",
+      "len": 8,
+      "handler": "dllg_tele_frame_21"
+    },
+    {
+      "desc": "dllg_tele_frame_22",
+      "len": 8,
+      "handler": "dllg_tele_frame_22"
+    },
+    {
+      "desc": "dllg_tele_frame_23",
+      "len": 8,
+      "handler": "dllg_tele_frame_23"
+    },
+    {
+      "desc": "dllg_tele_frame_24",
+      "len": 8,
+      "handler": "dllg_tele_frame_24"
+    },
+    {
+      "desc": "dllg_tele_frame_25",
+      "len": 8,
+      "handler": "dllg_tele_frame_25"
+    },
+    {
+      "desc": "dllg_tele_frame_26",
+      "len": 8,
+      "handler": "dllg_tele_frame_26"
+    },
+    {
+      "desc": "dllg_tele_frame_27",
+      "len": 8,
+      "handler": "dllg_tele_frame_27"
+    }
+  ],
+  "internal_handler": [
+    {
+      "desc": "sync head",
+      "len": 2,
+      "handler": "sync_head"
+    },
+    {
+      "desc": "data length",
+      "len": 2,
+      "handler": "data_length"
+    },
+    {
+      "desc": "send payload main id",
+      "len": 1,
+      "handler": "send_payload_main_id"
+    },
+    {
+      "desc": "send payload sub id",
+      "len": 1,
+      "handler": "send_payload_sub_id"
+    },
+    {
+      "desc": "receive payload main id",
+      "len": 1,
+      "handler": "receive_payload_main_id"
+    },
+    {
+      "desc": "receive payload sub id",
+      "len": 1,
+      "handler": "receive_payload_sub_id"
+    },
+    {
+      "desc": "data type",
+      "len": 1,
+      "handler": "data_type"
+    },
+    {
+      "desc": "send frame count",
+      "len": 1,
+      "handler": "send_frame_count"
+    },
+    {
+      "desc": "time of send",
+      "len": 4,
+      "handler": "time_of_send"
+    },
+    {
+      "desc": "data message",
+      "len": 24,
+      "handler": "data_message"
+    },
+    {
+      "desc": "sum of check",
+      "len": 1,
+      "handler": "sum_of_check"
+    }
+  ]
+}

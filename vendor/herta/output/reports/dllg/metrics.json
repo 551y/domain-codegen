@@ -1,0 +1,1463 @@
+{
+  "target": "dllg",
+  "generated_at": "2026-10-19T18:04:29.486194",
+  "topology_similarity": 80.0,
+  "cmd_list_similarity": 24.52,
+  "tele_handler_similarity": 100.0,
+  "internal_handler_similarity": 100.0,
+  "config_similarity": 73.36,
+  "handler_similarity": 48.03,
+  "overall_similarity": 56.896819149313785,
+  "config_details": {
+    "topology_similarity": {
+      "score": 80.0,
+      "details": {
+        "present_fields": [
+          "version",
+          "author",
+          "start_index",
+          "cmd_list",
+          "tele_handler",
+          "internal_handler"
+        ],
+        "missing_fields": [],
+        "list_type_check": {
+          "cmd_list": true,
+          "tele_handler": true,
+          "internal_handler": true
+        },
+        "element_field_check": {
+          "cmd_list": {
+            "expected": [
+              "desc",
+              "cmd",
+              "handler"
+            ],
+            "present": [
+              "desc",
+              "cmd",
+              "handler"
+            ],
+            "missing": []
+          },
+          "tele_handler": {
+            "expected": [
+              "desc",
+              "len",
+              "handler"
+            ],
+            "present": [
+              "desc",
+              "len",
+              "handler"
+            ],
+            "missing": []
+          },
+          "internal_handler": {
+            "expected": [
+              "desc",
+              "len",
+              "handler"
+            ],
+            "present": [
+              "desc",
+              "len",
+              "handler"
+            ],
+            "missing": []
+          }
+        }
+      },
+      "issues": []
+    },
+    "cmd_list_similarity": {
+      "score": 24.520601612964878,
+      "details": {
+        "gen_count": 15,
+        "gt_count": 6,
+        "cmd_comparisons": [
+          {
+            "cmd": 1,
+            "score": 25.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_bus_control",
+                "gt": "dllg_app_manager",
+                "match": false
+              },
+              "desc": {
+                "gen": "dllg bus control",
+                "gt": "dllg app manager",
+                "similarity": 50.0
+              }
+            }
+          },
+          {
+            "cmd": 2,
+            "score": 24.074074074074076,
+            "checks": {
+              "handler": {
+                "gen": "dllg_eng_param_collect",
+                "gt": "dllg_internal_cmd",
+                "match": false
+              },
+              "desc": {
+                "gen": "dllg engineering parameter collection",
+                "gt": "dllg internal cmd",
+                "similarity": 48.14814814814815
+              }
+            }
+          },
+          {
+            "cmd": 3,
+            "score": 40.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_app_manager",
+                "gt": "dllg_upload_manager",
+                "match": false
+              },
+              "desc": {
+                "gen": "dllg app manager",
+                "gt": "dllg upload manager",
+                "similarity": 80.0
+              }
+            }
+          },
+          {
+            "cmd": 6,
+            "score": 31.57894736842105,
+            "checks": {
+              "handler": {
+                "gen": "dllg_data_trans_manager",
+                "gt": "dllg_data_clear",
+                "match": false
+              },
+              "desc": {
+                "gen": "dllg data trans manager",
+                "gt": "dllg data clear",
+                "similarity": 63.1578947368421
+              }
+            }
+          },
+          {
+            "cmd": 7,
+            "score": 26.47058823529412,
+            "checks": {
+              "handler": {
+                "gen": "dllg_data_clear",
+                "gt": "dllg_set_power_mode",
+                "match": false
+              },
+              "desc": {
+                "gen": "dllg data clear",
+                "gt": "dllg set power mode",
+                "similarity": 52.94117647058824
+              }
+            }
+          }
+        ]
+      },
+      "issues": [
+        "命令数量不一致: 生成 15 vs 真实 6",
+        "缺失命令: 5"
+      ]
+    },
+    "tele_handler_similarity": {
+      "score": 100.0,
+      "details": {
+        "gen_count": 28,
+        "gt_count": 28,
+        "item_comparisons": [
+          {
+            "handler": "dllg_tele_frame_00",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_00",
+                "gt": "dllg_tele_frame_00",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_00",
+                "gt": "dllg_tele_frame_00",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_01",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_01",
+                "gt": "dllg_tele_frame_01",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_01",
+                "gt": "dllg_tele_frame_01",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_02",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_02",
+                "gt": "dllg_tele_frame_02",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_02",
+                "gt": "dllg_tele_frame_02",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_03",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_03",
+                "gt": "dllg_tele_frame_03",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_03",
+                "gt": "dllg_tele_frame_03",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_04",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_04",
+                "gt": "dllg_tele_frame_04",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_04",
+                "gt": "dllg_tele_frame_04",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_05",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_05",
+                "gt": "dllg_tele_frame_05",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_05",
+                "gt": "dllg_tele_frame_05",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_06",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_06",
+                "gt": "dllg_tele_frame_06",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_06",
+                "gt": "dllg_tele_frame_06",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_07",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_07",
+                "gt": "dllg_tele_frame_07",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_07",
+                "gt": "dllg_tele_frame_07",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_08",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_08",
+                "gt": "dllg_tele_frame_08",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_08",
+                "gt": "dllg_tele_frame_08",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_09",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_09",
+                "gt": "dllg_tele_frame_09",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_09",
+                "gt": "dllg_tele_frame_09",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_10",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_10",
+                "gt": "dllg_tele_frame_10",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_10",
+                "gt": "dllg_tele_frame_10",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_11",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_11",
+                "gt": "dllg_tele_frame_11",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_11",
+                "gt": "dllg_tele_frame_11",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_12",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_12",
+                "gt": "dllg_tele_frame_12",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_12",
+                "gt": "dllg_tele_frame_12",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_13",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_13",
+                "gt": "dllg_tele_frame_13",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_13",
+                "gt": "dllg_tele_frame_13",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_14",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_14",
+                "gt": "dllg_tele_frame_14",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_14",
+                "gt": "dllg_tele_frame_14",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_15",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_15",
+                "gt": "dllg_tele_frame_15",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_15",
+                "gt": "dllg_tele_frame_15",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_16",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_16",
+                "gt": "dllg_tele_frame_16",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_16",
+                "gt": "dllg_tele_frame_16",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_17",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_17",
+                "gt": "dllg_tele_frame_17",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_17",
+                "gt": "dllg_tele_frame_17",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_18",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_18",
+                "gt": "dllg_tele_frame_18",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_18",
+                "gt": "dllg_tele_frame_18",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_19",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_19",
+                "gt": "dllg_tele_frame_19",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_19",
+                "gt": "dllg_tele_frame_19",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_20",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_20",
+                "gt": "dllg_tele_frame_20",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_20",
+                "gt": "dllg_tele_frame_20",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_21",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_21",
+                "gt": "dllg_tele_frame_21",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_21",
+                "gt": "dllg_tele_frame_21",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_22",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_22",
+                "gt": "dllg_tele_frame_22",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_22",
+                "gt": "dllg_tele_frame_22",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_23",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_23",
+                "gt": "dllg_tele_frame_23",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_23",
+                "gt": "dllg_tele_frame_23",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_24",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_24",
+                "gt": "dllg_tele_frame_24",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_24",
+                "gt": "dllg_tele_frame_24",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_25",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_25",
+                "gt": "dllg_tele_frame_25",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_25",
+                "gt": "dllg_tele_frame_25",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_26",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_26",
+                "gt": "dllg_tele_frame_26",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_26",
+                "gt": "dllg_tele_frame_26",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "dllg_tele_frame_27",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "dllg_tele_frame_27",
+                "gt": "dllg_tele_frame_27",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 8,
+                "gt": 8,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "dllg_tele_frame_27",
+                "gt": "dllg_tele_frame_27",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          }
+        ]
+      },
+      "issues": []
+    },
+    "internal_handler_similarity": {
+      "score": 100.0,
+      "details": {
+        "gen_count": 11,
+        "gt_count": 11,
+        "item_comparisons": [
+          {
+            "handler": "sync_head",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "sync_head",
+                "gt": "sync_head",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 2,
+                "gt": 2,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "sync head",
+                "gt": "sync head",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "data_length",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "data_length",
+                "gt": "data_length",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 2,
+                "gt": 2,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "data length",
+                "gt": "data length",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "send_payload_main_id",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "send_payload_main_id",
+                "gt": "send_payload_main_id",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 1,
+                "gt": 1,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "send payload main id",
+                "gt": "send payload main id",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "send_payload_sub_id",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "send_payload_sub_id",
+                "gt": "send_payload_sub_id",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 1,
+                "gt": 1,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "send payload sub id",
+                "gt": "send payload sub id",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "receive_payload_main_id",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "receive_payload_main_id",
+                "gt": "receive_payload_main_id",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 1,
+                "gt": 1,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "receive payload main id",
+                "gt": "receive payload main id",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "receive_payload_sub_id",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "receive_payload_sub_id",
+                "gt": "receive_payload_sub_id",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 1,
+                "gt": 1,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "receive payload sub id",
+                "gt": "receive payload sub id",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "data_type",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "data_type",
+                "gt": "data_type",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 1,
+                "gt": 1,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "data type",
+                "gt": "data type",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "send_frame_count",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "send_frame_count",
+                "gt": "send_frame_count",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 1,
+                "gt": 1,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "send frame count",
+                "gt": "send frame count",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "time_of_send",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "time_of_send",
+                "gt": "time_of_send",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 4,
+                "gt": 4,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "time of send",
+                "gt": "time of send",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "data_message",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "data_message",
+                "gt": "data_message",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 24,
+                "gt": 24,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "data message",
+                "gt": "data message",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          },
+          {
+            "handler": "sum_of_check",
+            "score": 100.0,
+            "checks": {
+              "handler": {
+                "gen": "sum_of_check",
+                "gt": "sum_of_check",
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "len": {
+                "gen": 1,
+                "gt": 1,
+                "match": true,
+                "score": 33.333333333333336
+              },
+              "desc": {
+                "gen": "sum of check",
+                "gt": "sum of check",
+                "similarity": 100.0,
+                "score": 33.333333333333336
+              }
+            }
+          }
+        ]
+      },
+      "issues": []
+    },
+    "config_similarity": 73.35618048388946
+  },
+  "function_match_results": [
+    {
+      "gt_func_name": "dllg_get_power_mode",
+      "gen_func_name": "dllg_ac_eng_param_collect",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.0,
+      "semantic_feature_similarity": 0.0,
+      "ast_similarity": 0.0,
+      "is_matched": false
+    },
+    {
+      "gt_func_name": "dllg_get_cpu_usage",
+      "gen_func_name": "dllg_ap_set_task",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.0,
+      "semantic_feature_similarity": 0.0,
+      "ast_similarity": 0.0,
+      "is_matched": false
+    },
+    {
+      "gt_func_name": "dllg_get_gpu_usage",
+      "gen_func_name": "dllg_ac_bus_control",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.0,
+      "semantic_feature_similarity": 0.0,
+      "ast_similarity": 0.0,
+      "is_matched": false
+    },
+    {
+      "gt_func_name": "dllg_get_mem_usage",
+      "gen_func_name": "dllg_calc_checksum",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.0,
+      "semantic_feature_similarity": 0.0,
+      "ast_similarity": 0.0,
+      "is_matched": false
+    },
+    {
+      "gt_func_name": "dllg_get_emmc_usage",
+      "gen_func_name": "dllg_switch_bus",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.0,
+      "semantic_feature_similarity": 0.0,
+      "ast_similarity": 0.0,
+      "is_matched": false
+    },
+    {
+      "gt_func_name": "dllg_get_storage_usage",
+      "gen_func_name": "dllg_ap_app_manager",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.0,
+      "semantic_feature_similarity": 0.0,
+      "ast_similarity": 0.0,
+      "is_matched": false
+    },
+    {
+      "gt_func_name": "check_file_exist",
+      "gen_func_name": "dllg_ap_upload_manager",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.0,
+      "semantic_feature_similarity": 0.0,
+      "ast_similarity": 0.0,
+      "is_matched": false
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_00",
+      "gen_func_name": "dllg_ap_tele_frame_01",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.6683,
+      "semantic_feature_similarity": 0.394,
+      "ast_similarity": 0.586,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_01",
+      "gen_func_name": "dllg_ap_tele_frame_02",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.7251,
+      "semantic_feature_similarity": 0.2834,
+      "ast_similarity": 0.5926,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_02",
+      "gen_func_name": "dllg_ap_tele_frame_04",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.56,
+      "semantic_feature_similarity": 0.2804,
+      "ast_similarity": 0.4761,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_03",
+      "gen_func_name": "dllg_ap_tele_frame_15",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.6235,
+      "semantic_feature_similarity": 0.2821,
+      "ast_similarity": 0.5211,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_04",
+      "gen_func_name": "dllg_ap_tele_frame_05",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.7433,
+      "semantic_feature_similarity": 0.3143,
+      "ast_similarity": 0.6146,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_05",
+      "gen_func_name": "dllg_ac_send_response",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.0,
+      "semantic_feature_similarity": 0.0,
+      "ast_similarity": 0.0,
+      "is_matched": false
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_06",
+      "gen_func_name": "dllg_ap_tele_frame_07",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.6111,
+      "semantic_feature_similarity": 0.29,
+      "ast_similarity": 0.5148,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_07",
+      "gen_func_name": "dllg_ac_tele_frame_01",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.6753,
+      "semantic_feature_similarity": 0.2558,
+      "ast_similarity": 0.5495,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_08",
+      "gen_func_name": "dllg_ap_tele_frame_09",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.3866,
+      "semantic_feature_similarity": 0.2736,
+      "ast_similarity": 0.3527,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_09",
+      "gen_func_name": "dllg_handler_init",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.3697,
+      "semantic_feature_similarity": 0.25,
+      "ast_similarity": 0.3338,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_10",
+      "gen_func_name": "dllg_ap_tele_frame_17",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.5769,
+      "semantic_feature_similarity": 0.3274,
+      "ast_similarity": 0.5021,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_11",
+      "gen_func_name": "dllg_ap_tele_frame_03",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.5988,
+      "semantic_feature_similarity": 0.3344,
+      "ast_similarity": 0.5195,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_12",
+      "gen_func_name": "dllg_ap_tele_frame_14",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.5509,
+      "semantic_feature_similarity": 0.2731,
+      "ast_similarity": 0.4676,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_13",
+      "gen_func_name": "dllg_ap_tele_frame_12",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.5509,
+      "semantic_feature_similarity": 0.2774,
+      "ast_similarity": 0.4688,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_14",
+      "gen_func_name": "dllg_ap_tele_frame_13",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.4971,
+      "semantic_feature_similarity": 0.2803,
+      "ast_similarity": 0.432,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_15",
+      "gen_func_name": "dllg_ap_tele_frame_25",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.522,
+      "semantic_feature_similarity": 0.325,
+      "ast_similarity": 0.4629,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_16",
+      "gen_func_name": "dllg_ac_tele_frame_02",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.6547,
+      "semantic_feature_similarity": 0.3024,
+      "ast_similarity": 0.549,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_17",
+      "gen_func_name": "dllg_ap_tele_frame_10",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.5766,
+      "semantic_feature_similarity": 0.273,
+      "ast_similarity": 0.4855,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_18",
+      "gen_func_name": "dllg_ap_tele_frame_24",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.5549,
+      "semantic_feature_similarity": 0.3237,
+      "ast_similarity": 0.4856,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_19",
+      "gen_func_name": "dllg_ap_tele_frame_22",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.5449,
+      "semantic_feature_similarity": 0.3365,
+      "ast_similarity": 0.4824,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_20",
+      "gen_func_name": "dllg_ap_tele_frame_23",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.6467,
+      "semantic_feature_similarity": 0.2648,
+      "ast_similarity": 0.5321,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_21",
+      "gen_func_name": "dllg_ap_tele_frame_21",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.4971,
+      "semantic_feature_similarity": 0.2803,
+      "ast_similarity": 0.432,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_22",
+      "gen_func_name": "dllg_ap_tele_frame_20",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.5357,
+      "semantic_feature_similarity": 0.3165,
+      "ast_similarity": 0.47,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_23",
+      "gen_func_name": "dllg_ap_tele_frame_06",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.5749,
+      "semantic_feature_similarity": 0.2665,
+      "ast_similarity": 0.4823,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_24",
+      "gen_func_name": "dllg_ap_tele_frame_11",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.6467,
+      "semantic_feature_similarity": 0.2646,
+      "ast_similarity": 0.5321,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_25",
+      "gen_func_name": "dllg_ap_tele_frame_16",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.6467,
+      "semantic_feature_similarity": 0.2646,
+      "ast_similarity": 0.5321,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_26",
+      "gen_func_name": "dllg_ap_tele_frame_19",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.6467,
+      "semantic_feature_similarity": 0.2646,
+      "ast_similarity": 0.5321,
+      "is_matched": true
+    },
+    {
+      "gt_func_name": "dllg_tele_frame_27",
+      "gen_func_name": "dllg_ap_tele_frame_08",
+      "is_name_match": false,
+      "tree_edit_similarity": 0.6467,
+      "semantic_feature_similarity": 0.2646,
+      "ast_similarity": 0.5321,
+      "is_matched": true
+    }
+  ],
+  "unmatched_gt_functions": [],
+  "unmatched_gen_functions": [
+    "dllg_get_system_time",
+    "dllg_send_can_frame",
+    "dllg_ap_bus_control",
+    "dllg_ap_eng_param_collect",
+    "dllg_ap_data_trans_manager",
+    "dllg_ap_data_clear",
+    "dllg_ap_set_power_mode",
+    "dllg_ap_orbit_param",
+    "dllg_ac_bus_reset",
+    "dllg_ac_func_manager",
+    "dllg_ac_backup_sys_manager",
+    "dllg_ap_tele_frame_18",
+    "dllg_ap_tele_frame_26",
+    "dllg_ap_tele_frame_27",
+    "dllg_ap_tele_frame_28",
+    "dllg_ac_tele_frame_03",
+    "dllg_ap_send_response",
+    "dllg_can_frame_dispatch",
+    "dllg_check_bus_timeout"
+  ]
+}

@@ -1,0 +1,201 @@
+{
+    "version": "1.0",
+    "author": "herta",
+    "start_index": 1,
+    "cmd_list": [
+        {
+            "desc": "gdwx app manager",
+            "cmd": 1,
+            "handler": "gdwx_app_manager"
+        },
+        {
+            "desc": "gdwx internal cmd",
+            "cmd": 2,
+            "handler": "gdwx_internal_cmd"
+        },
+        {
+            "desc": "gdwx upload manager",
+            "cmd": 3,
+            "handler": "gdwx_upload_manager"
+        },
+        {
+            "desc": "gdwx data trans",
+            "cmd": 5,
+            "handler": "gdwx_data_trans"
+        },
+        {
+            "desc": "gdwx data clear",
+            "cmd": 6,
+            "handler": "gdwx_data_clear"
+        },
+        {
+            "desc": "gdwx set power mode",
+            "cmd": 7,
+            "handler": "gdwx_set_power_mode"
+        }
+    ],
+    "tele_handler": [
+        {
+            "desc": "gdwx_tele_frame_00",
+            "len": 8,
+            "handler": "gdwx_tele_frame_00"
+        },
+        {
+            "desc": "gdwx_tele_frame_01",
+            "len": 8,
+            "handler": "gdwx_tele_frame_01"
+        },
+        {
+            "desc": "gdwx_tele_frame_02",
+            "len": 8,
+            "handler": "gdwx_tele_frame_02"
+        },
+        {
+            "desc": "gdwx_tele_frame_03",
+            "len": 8,
+            "handler": "gdwx_tele_frame_03"
+        },
+        {
+            "desc": "gdwx_tele_frame_04",
+            "len": 8,
+            "handler": "gdwx_tele_frame_04"
+        },
+        {
+            "desc": "gdwx_tele_frame_05",
+            "len": 8,
+            "handler": "gdwx_tele_frame_05"
+        },
+        {
+            "desc": "gdwx_tele_frame_06",
+            "len": 8,
+            "handler": "gdwx_tele_frame_06"
+        },
+        {
+            "desc": "gdwx_tele_frame_07",
+            "len": 8,
+            "handler": "gdwx_tele_frame_07"
+        },
+        {
+            "desc": "gdwx_tele_frame_08",
+            "len": 8,
+            "handler": "gdwx_tele_frame_08"
+        },
+        {
+            "desc": "gdwx_tele_frame_09",
+            "len": 8,
+            "handler": "gdwx_tele_frame_09"
+        },
+        {
+            "desc": "gdwx_tele_frame_10",
+            "len": 8,
+            "handler": "gdwx_tele_frame_10"
+        },
+        {
+            "desc": "gdwx_tele_frame_11",
+            "len": 8,
+            "handler": "gdwx_tele_frame_11"
+        },
+        {
+            "desc": "gdwx_tele_frame_12",
+            "len": 8,
+            "handler": "gdwx_tele_frame_12"
+        },
+        {
+            "desc": "gdwx_tele_frame_13",
+            "len": 8,
+            "handler": "gdwx_tele_frame_13"
+        },
+        {
+            "desc": "gdwx_tele_frame_14",
+            "len": 8,
+            "handler": "gdwx_tele_frame_14"
+        },
+        {
+            "desc": "gdwx_tele_frame_15",
+            "len": 8,
+            "handler": "gdwx_tele_frame_15"
+        },
+        {
+            "desc": "gdwx_tele_frame_16",
+            "len": 8,
+            "handler": "gdwx_tele_frame_16"
+        },
+        {
+            "desc": "gdwx_tele_frame_17",
+            "len": 8,
+            "handler": "gdwx_tele_frame_17"
+        },
+        {
+            "desc": "gdwx_tele_frame_18",
+            "len": 8,
+            "handler": "gdwx_tele_frame_18"
+        },
+        {
+            "desc": "gdwx_tele_frame_19",
+            "len": 8,
+            "handler": "gdwx_tele_frame_19"
+        },
+        {
+            "desc": "gdwx_tele_frame_20",
+            "len": 8,
+            "handler": "gdwx_tele_frame_20"
+        }
+    ],
+    "internal_handler": [
+        {
+            "desc": "sync head",
+            "len": 2,
+            "handler": "sync_head"
+        },
+        {
+            "desc": "data length",
+            "len": 2,
+            "handler": "data_length"
+        },
+        {
+            "desc": "send payload main id",
+            "len": 1,
+            "handler": "send_payload_main_id"
+        },
+        {
+            "desc": "send payload sub id",
+            "len": 1,
+            "handler": "send_payload_sub_id"
+        },
+        {
+            "desc": "receive payload main id",
+            "len": 1,
+            "handler": "receive_payload_main_id"
+        },
+        {
+            "desc": "receive payload sub id",
+            "len": 1,
+            "handler": "receive_payload_sub_id"
+        },
+        {
+            "desc": "data type",
+            "len": 1,
+            "handler": "data_type"
+        },
+        {
+            "desc": "send frame count",
+            "len": 1,
+            "handler": "send_frame_count"
+        },
+        {
+            "desc": "time of send",
+            "len": 4,
+            "handler": "time_of_send"
+        },
+        {
+            "desc": "data message",
+            "len": 24,
+            "handler": "data_message"
+        },
+        {
+            "desc": "sum of check",
+            "len": 1,
+            "handler": "sum_of_check"
+        }
+    ]
+}

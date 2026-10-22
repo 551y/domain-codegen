@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# Node
+node_modules/
+.next/
+
+# 运行时产物（start.sh 会自动重建）
+logs/
+server/workspace/
+
+# 系统
+.DS_Store
