@@ -10,7 +10,9 @@ node_modules/
 
 # 运行时产物（start.sh 会自动重建）
 logs/
-server/workspace/
+server/workspace/uploads/
+server/workspace/generated/
+# 注意：server/workspace/eval_cache/ 为评测缓存，需随仓库分发（内容指纹索引，跨机器命中）
 
 # 系统
 .DS_Store
