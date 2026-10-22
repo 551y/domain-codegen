@@ -391,6 +391,7 @@ export default function WorkbenchPage() {
               <button
                 key={t.id}
                 onClick={() => focusTask(t.id)}
+                title={t.state.error || t.state.message}
                 className={cn(
                   "group flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11.5px] transition-colors",
                   activeChip
