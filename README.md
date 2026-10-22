@@ -11,6 +11,8 @@
 ./stop.sh
 ```
 
+Windows（原生 PowerShell）：`.\start.ps1` / `.\stop.ps1`，安装步骤见下文「重新部署 · Windows」。
+
 ## 演示流程（工作台一页走完）
 
 1. **选择知识库**：两张场景卡（卫星协议代码生成 / 无人机模型部署适配 PyTorch→ONNX）
@@ -39,6 +41,8 @@
 
 **整个平台已自包含：迁移只需拷贝 `domain-codegen/` 一个目录**（引擎、两套知识库数据、演示用例 `case/` 全部内置），对放置位置无要求。
 
+### Linux / macOS / WSL
+
 ```bash
 conda create -n demo python=3.12 -y && conda activate demo
 pip install -e ./vendor/herta        # 引擎与依赖（fastapi/uvicorn/faiss/tree-sitter 等）
@@ -46,10 +50,26 @@ pip install python-multipart         # 上传接口需要
 cd app && npm install --legacy-peer-deps && npm run build
 ```
 
+### Windows（原生，无 WSL）
+
+启动脚本为 `start.ps1` / `stop.ps1`（PowerShell）。先装好 [Node.js LTS](https://nodejs.org) 与 Miniconda，然后：
+
+```powershell
+conda create -n demo python=3.12 -y; conda activate demo
+conda install -c conda-forge faiss-cpu -y   # faiss-cpu 没有 Windows 的 pip 包，须走 conda-forge（先装它，后续 pip 会识别为已满足）
+pip install -e ./vendor/herta
+pip install python-multipart
+cd app; npm install --legacy-peer-deps; npm run build; cd ..
+.\start.ps1     # 若提示禁止运行脚本：powershell -ExecutionPolicy Bypass -File .\start.ps1
+.\stop.ps1
+```
+
+Windows 版日志为 `logs/server.log` + `logs/server.err.log`（前端同理，`Start-Process` 不支持 stdout/stderr 合并到同一文件，故分两个）。
+
 ## 故障处置
 
 | 现象 | 处置 |
 |---|---|
 | 生成失败提示未配置 Key | 预期（离线），换预置样例或配置 Key |
-| 端口占用 | `./stop.sh` 后重起 |
+| 端口占用 | `./stop.sh`（Windows：`.\stop.ps1`）后重起 |
 | 页面空数据 | `curl localhost:8200/api/health` 确认后端 |
