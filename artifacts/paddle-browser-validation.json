@@ -1,0 +1,90 @@
+{
+  "passed": 2,
+  "cases": [
+    {
+      "name": "densenet",
+      "label": "DenseNet-121",
+      "elapsed_ms": 6019,
+      "pre_generated": false,
+      "class_name": "DenseNet",
+      "output_shape": [
+        1,
+        1000
+      ],
+      "evaluation_steps": [
+        {
+          "name": "ModelX CMC 源码转换",
+          "status": "passed",
+          "detail": "53 个 API 成功，0 个未支持"
+        },
+        {
+          "name": "Paddle 导入与 dummy 前向",
+          "status": "passed",
+          "detail": "前向输出 [1, 1000]"
+        },
+        {
+          "name": "语法/迁移/结构静态评测",
+          "status": "passed",
+          "detail": "6/6 项通过"
+        }
+      ],
+      "helpers": [
+        {
+          "file": "modified_KaimingNormal.py",
+          "level": "Python underlying library",
+          "classes": [
+            "Modified_KaimingNormal"
+          ]
+        }
+      ],
+      "screenshot": "paddle-densenet-library-validation.png"
+    },
+    {
+      "name": "inception",
+      "label": "Inception-v3",
+      "elapsed_ms": 5923,
+      "pre_generated": false,
+      "class_name": "Inception3",
+      "output_shape": [
+        1,
+        1000
+      ],
+      "evaluation_steps": [
+        {
+          "name": "ModelX CMC 源码转换",
+          "status": "passed",
+          "detail": "87 个 API 成功，0 个未支持"
+        },
+        {
+          "name": "Paddle 导入与 dummy 前向",
+          "status": "passed",
+          "detail": "前向输出 [1, 1000]"
+        },
+        {
+          "name": "语法/迁移/结构静态评测",
+          "status": "passed",
+          "detail": "6/6 项通过"
+        }
+      ],
+      "helpers": [
+        {
+          "file": "modified_TruncatedNormal.py",
+          "level": "Python underlying library",
+          "classes": [
+            "Modified_TruncatedNormal"
+          ]
+        }
+      ],
+      "screenshot": "paddle-inception-library-validation.png"
+    }
+  ],
+  "knowledge_search": {
+    "passed": true,
+    "empty_view": {
+      "viewBox": "0 0 110 131",
+      "circles": 0
+    }
+  },
+  "browser_errors": [],
+  "console_errors": []
+}

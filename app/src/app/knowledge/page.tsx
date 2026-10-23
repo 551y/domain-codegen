@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, Database, Plane, Satellite, Search } from "lucide-react";
 import { api } from "@/lib/api";
-import type { OnnxDataset, OnnxRecord, ProtocolChunk, ProtocolDataset } from "@/lib/api";
+import type { OnnxDataset, OnnxRecord, PaddleDataset, ProtocolChunk, ProtocolDataset } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const KIND_STYLE: Record<string, { label: string; cls: string }> = {
@@ -51,6 +51,7 @@ const fmtNum = (v: number) => v.toLocaleString("en-US");
 
 function DatasetViz({ cfg }: { cfg: DatasetVizConfig }) {
   const [sel, setSel] = useState(0);
+  useEffect(() => { setSel(0); }, [cfg.records]);
   const rec = cfg.records[sel];
 
   // 同类连续排列（与数据集独立页点阵同口径：100 条一组、10×10，块过多时折行）
@@ -70,8 +71,8 @@ function DatasetViz({ cfg }: { cfg: DatasetVizConfig }) {
 
   const pitch = 11, gap = 26, gapY = 10, labelH = 15;
   const groupCount = Math.ceil(order.length / 100);
-  const cols = Math.min(groupCount, 7);
-  const rows = Math.ceil(groupCount / cols);
+  const cols = Math.max(1, Math.min(groupCount, 7));
+  const rows = Math.max(1, Math.ceil(groupCount / cols));
   const vbW = cols * 10 * pitch + (cols - 1) * gap;
   const vbH = rows * (10 * pitch + labelH) + (rows - 1) * gapY + 6;
   const move = (d: number) => {
@@ -115,6 +116,7 @@ function DatasetViz({ cfg }: { cfg: DatasetVizConfig }) {
 
       {/* 点阵图：100 条一组、同类连续排列 */}
       <div className="px-4 pt-3">
+        {cfg.records.length === 0 && <p className="py-4 text-center text-[12px] text-muted-foreground">无匹配记录</p>}
         <svg viewBox={`0 0 ${vbW} ${vbH}`} className="h-auto w-full max-w-[760px]" role="img"
           aria-label={`全部 ${cfg.records.length} 条记录，按类别着色`}>
           {order.map((recIdx, offset) => {
@@ -253,8 +255,36 @@ function ModelDatasetView({ data }: { data: OnnxDataset }) {
   return <DatasetViz cfg={cfg} />;
 }
 
+const PADDLE_PALETTE = ["#5487C5", "#CD9251", "#8E72BE", "#C46D87", "#808590"];
+
+function PaddleDatasetView({ data }: { data: PaddleDataset }) {
+  const cfg: DatasetVizConfig = {
+    headerNote: "数据集可视化 · ModelX PyTorch→Paddle 映射规则",
+    primary: {
+      total: data.total, label: "条 · ModelX 映射规则",
+      sub: `直接映射 ${fmtNum(data.composition.direct)} · 参数改写 ${fmtNum(data.composition.parameter_rewrites)} · 语义转换 ${fmtNum(data.composition.semantic_rewrites)}`,
+    },
+    secondary: {
+      total: data.composition.unsupported, label: "条 · 不支持规则",
+      sub: "来自 pytorch_to_paddlepaddle.json 的 Unsupported 条目",
+    },
+    kinds: data.categories.map((c) => ({ key: c.key, label: c.label, count: c.count })),
+    kindColors: Object.fromEntries(data.categories.map((c, i) => [c.key, PADDLE_PALETTE[i % PADDLE_PALETTE.length]])),
+    records: data.records.map((r) => ({
+      id: r.id, title: r.title, category: r.category, category_label: r.category_label,
+      text: r.text, isDoc: false,
+      meta: [
+        ["源 API", r.source_api], ["目标 API", r.target_api || "—"],
+        ["Matcher", r.matcher || "—"], ["参数改写", Object.keys(r.params_change || {}).join(", ") || "—"],
+      ],
+    })),
+    files: data.files,
+  };
+  return <DatasetViz cfg={cfg} />;
+}
+
 export default function KnowledgePage() {
-  const [tab, setTab] = useState<"protocol" | "operator">("protocol");
+  const [tab, setTab] = useState<"protocol" | "operator" | "paddle">("protocol");
   const [query, setQuery] = useState("");
   const [chunks, setChunks] = useState<ProtocolChunk[]>([]);
   const [chunkTotal, setChunkTotal] = useState(0);
@@ -263,6 +293,7 @@ export default function KnowledgePage() {
   const [recordTotal, setRecordTotal] = useState(0);
   const [protoDs, setProtoDs] = useState<ProtocolDataset | null>(null);
   const [onnxDs, setOnnxDs] = useState<OnnxDataset | null>(null);
+  const [paddleDs, setPaddleDs] = useState<PaddleDataset | null>(null);
   const [openChunk, setOpenChunk] = useState<string | null>(null);
   const [openRecord, setOpenRecord] = useState<string | null>(null);
 
@@ -279,6 +310,7 @@ export default function KnowledgePage() {
     }).catch(() => {});
     api.protocolDataset().then(setProtoDs).catch(() => {});
     api.onnxDataset().then(setOnnxDs).catch(() => {});
+    api.paddleDataset().then(setPaddleDs).catch(() => {});
   }, []);
 
   // 搜索（防抖）
@@ -286,17 +318,40 @@ export default function KnowledgePage() {
     const t = setTimeout(() => {
       if (tab === "protocol") {
         api.protocolChunks(query).then((r) => setChunks(r.chunks)).catch(() => {});
-      } else {
+      } else if (tab === "operator") {
         api.onnxRecords(query).then((r) => setRecords(r.records)).catch(() => {});
       }
     }, 250);
     return () => clearTimeout(t);
   }, [query, tab]);
 
+  const filteredPaddleDs = useMemo(() => {
+    if (!paddleDs || tab !== "paddle" || !query.trim()) return paddleDs;
+    const q = query.trim().toLowerCase();
+    const records = paddleDs.records.filter((r) =>
+      [r.title, r.source_api, r.target_api, r.matcher, r.category_label, r.text]
+        .some((v) => String(v || "").toLowerCase().includes(q)),
+    );
+    const counts = new Map(records.map((r) => [r.category, 0]));
+    records.forEach((r) => counts.set(r.category, (counts.get(r.category) || 0) + 1));
+    return {
+      ...paddleDs,
+      total: records.length,
+      categories: paddleDs.categories.map((c) => ({ ...c, count: counts.get(c.key) || 0 })),
+      composition: {
+        direct: counts.get("direct_mapping") || 0,
+        parameter_rewrites: counts.get("parameter_rewrite") || 0,
+        semantic_rewrites: counts.get("semantic_rewrite") || 0,
+        unsupported: counts.get("unsupported") || 0,
+      },
+      records,
+    };
+  }, [paddleDs, query, tab]);
+
   return (
     <div className="mx-auto w-full max-w-[1100px] px-6 py-6">
       <div className="mb-4 flex items-center justify-center gap-3">
-        <h1 className="text-[18px] font-bold tracking-tight">两套领域知识库</h1>
+        <h1 className="text-[18px] font-bold tracking-tight">领域知识库与转换规则</h1>
       </div>
 
       {/* Tab 切换 */}
@@ -323,6 +378,17 @@ export default function KnowledgePage() {
           模型部署适配知识库
           <span className="font-mono text-[10px] text-muted-foreground">{recordTotal} 条知识</span>
         </button>
+        <button
+          onClick={() => setTab("paddle")}
+          className={cn(
+            "flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-[13px] transition-colors",
+            tab === "paddle" ? "bg-card font-medium shadow-sm" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Database size={14} className="text-primary" />
+          Paddle 转换规则
+          <span className="font-mono text-[10px] text-muted-foreground">{paddleDs?.total ?? 0} 条规则</span>
+        </button>
       </div>
 
       {/* 搜索 */}
@@ -331,7 +397,7 @@ export default function KnowledgePage() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={tab === "protocol" ? "搜索知识块内容 / 编号…" : "搜索算子（如 conv2d / batchnorm）…"}
+          placeholder={tab === "protocol" ? "搜索知识块内容 / 编号…" : tab === "operator" ? "搜索 ONNX 算子（如 conv2d / batchnorm）…" : "搜索 Paddle 源 API / 目标 API / Matcher…"}
           className="w-full rounded-lg border border-input bg-card py-2.5 pl-9 pr-3 text-[13px] outline-none transition-colors focus:border-primary/50"
         />
       </div>
@@ -416,6 +482,8 @@ export default function KnowledgePage() {
           </div>
         </div>
       )}
+
+      {tab === "paddle" && filteredPaddleDs && <PaddleDatasetView data={filteredPaddleDs} />}
 
     </div>
   );

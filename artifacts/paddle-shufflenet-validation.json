@@ -1,0 +1,80 @@
+{
+  "verified_at": "2026-10-23T21:11:09.440563+00:00",
+  "python": "3.9.19",
+  "paddle": "2.6.0",
+  "scope": "Real ModelX conversion + main/helper syntax + CPU dummy forward; no numerical equivalence claim",
+  "passed": 1,
+  "total": 1,
+  "cases": [
+    {
+      "model": "shufflenetv2",
+      "label": "ShuffleNet-v2 0.5x",
+      "passed": true,
+      "errors": [],
+      "elapsed_s": 5.529,
+      "pre_generated": false,
+      "stats": {
+        "ModelX 转换器": "ModelX CMC",
+        "源文件": "shufflenetv2.py",
+        "成功转换 API": 51,
+        "未支持 API": 0,
+        "伴随模块": 0,
+        "主模型类": "ShuffleNetV2",
+        "参数量": "1.37 M"
+      },
+      "checks": {
+        "语法合法": true,
+        "引入 paddle": true,
+        "无 torch 残留": true,
+        "网络结构完整（nn.Layer + forward）": true,
+        "Paddle 模块导入成功": true,
+        "Paddle dummy 前向成功": true,
+        "ModelX 转换器产出代码": true,
+        "输出形状符合样例约定": true,
+        "输出不含 NaN/Inf": true
+      },
+      "scores": {
+        "ModelX API 转换成功率": 100.0,
+        "类结构对齐": 100.0,
+        "层数量对齐": 100.0,
+        "forward 调用对齐": 100.0
+      },
+      "runtime": {
+        "attempted": true,
+        "available": true,
+        "import_ok": true,
+        "forward_attempted": true,
+        "forward_ok": true,
+        "input_shape": [
+          1,
+          3,
+          224,
+          224
+        ],
+        "class_name": "ShuffleNetV2",
+        "profile_label": "ShuffleNet-v2 0.5x",
+        "params": 1374744,
+        "output_shape": [
+          1,
+          1000
+        ],
+        "finite": true,
+        "expected_output_shape": [
+          1,
+          1000
+        ],
+        "output_shape_ok": true,
+        "elapsed_s": 1.374
+      },
+      "library_modifications": [],
+      "compatibility_fixes": [],
+      "files": [
+        {
+          "name": "shufflenetv2_paddle.py",
+          "sha256": "5bfe008f3a578eb8ace8ccef9fb7585d9342938816b30a4e5eb585ba1500652c"
+        }
+      ],
+      "source_sha256": "ccb36bd259a0463bcc84447bc6f7db0d5835d5d6f4dff5be1ea702c998782f7a"
+    }
+  ]
+}

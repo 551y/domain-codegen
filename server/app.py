@@ -3,9 +3,9 @@
 
 一个后端统一编排两套知识库的代码生成流水线：
   - 入口一（星务协议知识库）：协议文档 → 检索增强 → LLM 生成 config/handler → 本地评测
-  - 入口二（模型部署适配知识库，ONNX / Paddle 两目标共用同一数据集）：
+  - 入口二（模型部署适配，ONNX 知识库与 ModelX Paddle 映射规则独立维护）：
       PyTorch→ONNX：BM25 检索 → LLM 生成导出代码 → 子进程真实执行导出（产出可下载的单文件 .onnx）
-      PyTorch→Paddle：BM25 检索 → LLM 生成转换代码 → 迁移彻底性/结构评测
+      PyTorch→Paddle：ModelX CMC AST/规则转换 → 迁移彻底性/结构评测 → Paddle 冒烟检查
 
 引擎复用：herta（LLM 生成与评测）、opalign（样例模型）。本文件只做编排与演示适配。
 """
@@ -31,6 +31,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+try:
+    from paddle_converter import ConversionResult, convert_pytorch_source, paddle_demo_cases, run_paddle_smoke_test
+except ModuleNotFoundError:  # importing as ``server.app`` in tests/tools
+    from server.paddle_converter import ConversionResult, convert_pytorch_source, paddle_demo_cases, run_paddle_smoke_test
+
 # ---------------------------------------------------------------------------
 # 路径与常量
 # ---------------------------------------------------------------------------
@@ -51,6 +56,7 @@ OPALIGN_MODELS = OPALIGN_ROOT / "EVALUATION" / "datasets" / "models"
 ONNX_DATASET = VENDOR_DIR / "onnx" / "dataset.expanded.jsonl"
 ONNX_PRESET_DIR = PLATFORM_ROOT / "server" / "preset_onnx"
 PADDLE_PRESET_DIR = PLATFORM_ROOT / "server" / "preset_paddle"
+PADDLE_DATASET = VENDOR_DIR / "modelx" / "paddle_dataset_view.json"
 
 for d in (UPLOAD_DIR, GEN_DIR):
     d.mkdir(parents=True, exist_ok=True)
@@ -90,6 +96,9 @@ def _task_update(task_id: str, **kw):
 
 def _task_intermediate(task_id: str, **kw):
     """追加任务的中间过程数据（解析/检索等阶段的产出，供前端在执行过程中实时展示）"""
+    if "evaluation_steps" in kw:
+        # Publish snapshots; the worker mutates its local step list later.
+        kw["evaluation_steps"] = [dict(step) for step in kw["evaluation_steps"]]
     with _tasks_lock:
         t = tasks.get(task_id)
         if t is not None:
@@ -625,6 +634,7 @@ def list_kbs():
 
 def _vision_samples(preset_dir: Path, preset_suffix: str) -> list:
     """视觉骨干样例列表（PyTorch 源码 + 预置产物标记）"""
+    paddle_cases = paddle_demo_cases() if preset_suffix == "_to_paddle.py" else {}
     out = []
     for fw_dir in [OPALIGN_MODELS / "pytorch"]:
         if not fw_dir.exists():
@@ -642,12 +652,18 @@ def _vision_samples(preset_dir: Path, preset_suffix: str) -> list:
                 if name == "__init__" or name in seen:
                     continue
                 seen.add(name)
-                out.append({
+                item = {
                     "name": name, "domain": domain_dir.name,
                     "id": f"pytorch/{domain_dir.name}/{name}",
                     "label": f"{name}（{domain_dir.name}）",
                     "pre_generated": (preset_dir / f"{name}{preset_suffix}").exists(),
-                })
+                }
+                if name in paddle_cases:
+                    item["demo_label"] = paddle_cases[name]["label"]
+                    item["demo_available"] = True
+                    if paddle_cases[name].get("modelx_variant"):
+                        item["modelx_variant"] = paddle_cases[name]["modelx_variant"]
+                out.append(item)
     return out
 
 
@@ -705,7 +721,7 @@ async def upload_file(kb: str, file: UploadFile = File(...)):
 # ---------------------------------------------------------------------------
 
 class GenerateRequest(BaseModel):
-    kb: str                       # protocol | operator
+    kb: str                       # protocol | operator | paddle
     source: str                   # 样例名 或 upload_id
     mode: str = "sample"          # sample | upload
     top_k: int = 30
@@ -1466,51 +1482,8 @@ def _run_operator(task_id: str, req: GenerateRequest):
 
 # ---------------------------------------------------------------------------
 # 入口二 · Paddle 目标：PyTorch → PaddlePaddle 跨框架转换
-# （与 ONNX 目标共用同一套「模型部署适配知识库」，不再单独维护映射表数据集）
+# （转换使用 ModelX 自带映射规则；ONNX 知识检索只作参考展示）
 # ---------------------------------------------------------------------------
-
-def _build_paddle_prompt(source_text: str, analysis: dict, retrieved: list) -> list:
-    """组装 PyTorch→Paddle 转换代码的 LLM 请求（注入统一知识库中检索到的算子语义/映射知识）"""
-    ops_text = "、".join(f"`{c}`" for c in analysis["calls"][:20]) or "（未检出）"
-    knowledge_blocks = []
-    for i, rec in enumerate(retrieved, 1):
-        knowledge_blocks.append(
-            f"【知识 {i}】{rec['category_label']} · {rec['title']}（来源: {rec['source']}）\n"
-            f"{rec['content'][:1200]}"
-        )
-    knowledge_text = "\n\n".join(knowledge_blocks) if knowledge_blocks else "（未检索到相关知识）"
-
-    system = (
-        "你是一位资深的深度学习框架迁移工程师，精通 PyTorch → PaddlePaddle 的源代码级转换"
-        "（API 映射、参数语义对齐、缺失算子用目标框架基础算子合成、初始化策略对齐）。"
-        "你的任务是把给定的 PyTorch 模型源码完整迁移为等价、可运行的 PaddlePaddle 代码。"
-    )
-    user = f"""# PyTorch → PaddlePaddle 模型代码转换
-
-## 源码中检出的 torch 算子
-{ops_text}
-
-## 从模型部署适配知识库检索到的相关知识（算子语义/映射/修复案例，供转换参考）
-{knowledge_text}
-
-## 编写要求
-1. 全量迁移到 PaddlePaddle：`import paddle` / `paddle.nn`，`nn.Module` → `paddle.nn.Layer`，禁止残留任何 torch 引用
-2. API 对应关系按两框架官方约定改写（如 `torch.cat` → `paddle.concat`、`dim` → `axis`、`start_dim` → `start_axis`、`bias` → `bias_attr`、`eps` → `epsilon`）
-3. 初始化函数（`torch.nn.init.*`）改用 `paddle.nn.initializer.*` 策略，以构造参数或权重重写方式落地
-4. 目标框架缺失的算子用 paddle 基础算子合成等价逻辑，并附注释说明
-5. 无法直接对齐的语义差异，封装为 `Modified_XXX` 自定义 Layer 并注释原因
-6. 保持类名、forward 输入输出语义与源模型一致
-
-## 源模型代码（PyTorch）
-```python
-{source_text}
-```
-
-## 输出要求
-仅输出完整的 Python 转换代码，不要输出解释文字或 markdown 围栏。
-"""
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
-
 
 def _code_without_comments(src: str) -> str:
     """剥离注释（评测 torch 残留用，避免「torch.cat → paddle.concat」这类对齐注释误判）"""
@@ -1522,8 +1495,20 @@ def _code_without_comments(src: str) -> str:
         return src
 
 
-def _eval_paddle(gen_code: str, analysis: dict, retrieved: list, source_text: str = "") -> dict:
-    """评测生成的 Paddle 转换代码：语法、框架迁移彻底性、结构完整性 + 与源模型的结构对齐度"""
+def _eval_paddle(
+    gen_code: str,
+    analysis: dict,
+    retrieved: list,
+    source_text: str = "",
+    conversion: Optional[ConversionResult] = None,
+    runtime: Optional[dict] = None,
+    companion_files: Optional[dict] = None,
+) -> dict:
+    """评测 Paddle 产物。
+
+    评测口径与 ONNX 路线保持一致：静态检查项单独列出，连续程度指标
+    放在 scores 中；如果 Paddle 安装可用，再执行一次导入和 dummy 前向冒烟。
+    """
     try:
         ast.parse(gen_code)
         syntax_valid = True
@@ -1536,11 +1521,12 @@ def _eval_paddle(gen_code: str, analysis: dict, retrieved: list, source_text: st
         re.search(r"(?m)^\s*(import|from)\s+torch\b", code_only)
         or re.search(r"(?<![\w.])torch\.", code_only)
     )
-    has_layer = "nn.Layer" in code_only
+    has_layer = bool(re.search(r"(?:paddle\.)?nn\.Layer\b", code_only))
     has_forward = "def forward" in code_only
     wrappers = len(re.findall(r"class\s+Modified_\w+", code_only))
 
     scores = {}
+    companion_files = conversion.extra_files if conversion is not None else companion_files or {}
     # 通过/失败型检查项
     checks = {
         "语法合法": syntax_valid,
@@ -1549,17 +1535,44 @@ def _eval_paddle(gen_code: str, analysis: dict, retrieved: list, source_text: st
         "网络结构完整（nn.Layer + forward）": has_layer and has_forward,
     }
 
+    runtime = runtime or {"attempted": False}
+    if runtime.get("attempted"):
+        checks["Paddle 模块导入成功"] = bool(runtime.get("import_ok"))
+        if runtime.get("construction_attempted"):
+            checks["Paddle 模型构造成功"] = bool(runtime.get("construction_ok"))
+        if runtime.get("forward_attempted"):
+            checks["Paddle dummy 前向成功"] = bool(runtime.get("forward_ok"))
+        if runtime.get("error"):
+            checks["Paddle 运行时检查无异常"] = False
+
+    if conversion is not None:
+        # ModelX 的 API 迁移统计是转换工具实际返回的计数，不把它伪装成
+        # 代码相似度；与 ONNX 的导出/校验检查一样，在界面上单独展示。
+        checks["ModelX 转换器产出代码"] = bool(gen_code.strip())
+        checks["ModelX API 全部转换"] = conversion.failed_api_count == 0
+        scores["ModelX API 转换成功率"] = conversion.api_success_rate
+    if companion_files:
+        companion_syntax_ok = True
+        for filename, content in companion_files.items():
+            try:
+                ast.parse(content, filename=filename)
+            except SyntaxError:
+                companion_syntax_ok = False
+        checks["伴随 Python 模块语法合法"] = companion_syntax_ok
+        wrappers += sum(len(re.findall(r"class\s+Modified_\w+", text))
+                        for text in companion_files.values())
+
     # 结构对齐（静态指标，无需 paddle 运行时）：
     # 主类名一致 / 层构造数量对齐 / forward 中 self.* 调用序列相似度
     if source_text:
-        src_classes = re.findall(r"class\s+(\w+)\s*\(\s*nn\.Module\s*\)", source_text)
-        gen_classes = set(re.findall(r"class\s+(\w+)\s*\(\s*(?:nn\.)?Layer\s*\)", code_only))
+        src_classes = re.findall(r"class\s+(\w+)\s*\(\s*(?:(?:torch\.)?nn)\.Module\s*\)", source_text)
+        gen_classes = set(re.findall(r"class\s+(\w+)\s*\(\s*(?:(?:paddle\.)?nn\.)?Layer\s*\)", code_only))
         if src_classes:
             preserved = sum(1 for c in src_classes if c in gen_classes)
             scores["类结构对齐"] = round(preserved / len(src_classes) * 100, 1)
 
-        src_layers = re.findall(r"nn\.([A-Z]\w*)\s*\(", source_text)
-        gen_layers = re.findall(r"nn\.([A-Z]\w*)\s*\(", code_only)
+        src_layers = re.findall(r"(?:(?:torch\.)?nn)\.([A-Z]\w*)\s*\(", source_text)
+        gen_layers = re.findall(r"(?:(?:paddle\.)?nn)\.([A-Z]\w*)\s*\(", code_only)
         if src_layers and gen_layers:
             scores["层数量对齐"] = round(min(len(src_layers), len(gen_layers))
                                        / max(len(src_layers), len(gen_layers)) * 100, 1)
@@ -1586,7 +1599,7 @@ def _eval_paddle(gen_code: str, analysis: dict, retrieved: list, source_text: st
             scores["forward 调用对齐"] = round(
                 difflib.SequenceMatcher(None, src_seq, gen_seq).ratio() * 100, 1)
 
-    return {
+    evaluation = {
         "kind": "paddle",
         "scores": scores,
         "checks": checks,
@@ -1601,12 +1614,47 @@ def _eval_paddle(gen_code: str, analysis: dict, retrieved: list, source_text: st
             for r in retrieved
         ],
     }
+    if conversion is not None:
+        evaluation["stats"] = {
+            "ModelX 转换器": conversion.converter,
+            "源文件": Path(conversion.source_file).name,
+            "成功转换 API": conversion.success_api_count,
+            "未支持 API": conversion.failed_api_count,
+        }
+        if conversion.unsupported:
+            evaluation["unsupported_apis"] = conversion.unsupported
+        evaluation["compatibility_fixes"] = conversion.compatibility_fixes
+    evaluation["library_modifications"] = [
+        {"file": filename, "level": "Python underlying library",
+         "classes": re.findall(r"class\s+(Modified_\w+)", content)}
+        for filename, content in companion_files.items()
+        if Path(filename).name.startswith("modified_")
+    ]
+    evaluation.setdefault("stats", {})["伴随模块"] = len(companion_files)
+    if runtime.get("class_name"):
+        evaluation.setdefault("stats", {})["主模型类"] = runtime["class_name"]
+    if runtime.get("params") is not None:
+        evaluation.setdefault("stats", {})["参数量"] = f"{runtime['params'] / 1e6:.2f} M"
+    evaluation["paddle_runtime"] = runtime
+    if runtime.get("attempted"):
+        if runtime.get("output_shape_ok") is not None:
+            checks["输出形状符合样例约定"] = bool(runtime["output_shape_ok"])
+        if runtime.get("forward_attempted") and runtime.get("finite") is not None:
+            checks["输出不含 NaN/Inf"] = bool(runtime["finite"])
+        if runtime.get("error"):
+            evaluation["note"] = runtime["error"]
+        elif runtime.get("skip_reason"):
+            evaluation["note"] = runtime["skip_reason"]
+    else:
+        evaluation["note"] = runtime.get("skip_reason") or "未执行 Paddle 运行时检查；已完成静态迁移评测。"
+    return evaluation
 
 
 def _run_paddle(task_id: str, req: GenerateRequest):
     try:
         _task_update(task_id, status="running", progress=5, stage=0, message="解析模型源码…")
         src, name, preset_file = _locate_torch_source(req, PADDLE_PRESET_DIR, "_to_paddle.py")
+        profile = paddle_demo_cases().get(name) if req.mode == "sample" else None
 
         if src.is_dir():
             texts = [p.read_text(encoding="utf-8", errors="replace") for p in sorted(src.rglob("*.py"))]
@@ -1617,7 +1665,8 @@ def _run_paddle(task_id: str, req: GenerateRequest):
         _task_update(task_id, progress=20, stage=1, message="检索模型部署适配知识库…")
         analysis = _analyze_source(source_text)
         leaf_ops = sorted({c.split(".")[-1] for c in analysis["calls"]})
-        # 与 ONNX 目标共用同一数据集：查询中注入 Paddle 转换意图，偏向算子映射/语义类知识
+        # 与 ONNX 目标共用同一数据集，仅用于工作台展示相关算子知识；
+        # ModelX CMC 本身使用内置 AST/规则映射，不读取 LLM 或该检索结果。
         query = f"{name} PyTorch Paddle 转换 算子映射 " + " ".join(leaf_ops[:12])
         retrieved = _onnx_retrieve(query, top_k=8)
         _task_intermediate(
@@ -1627,45 +1676,126 @@ def _run_paddle(task_id: str, req: GenerateRequest):
                         "score": r["score"], "source": r["source"]} for r in retrieved],
         )
 
+        out_dir = GEN_DIR / task_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+        conversion: Optional[ConversionResult] = None
+        extra_files = {}
+        modelx_fallback_reason: Optional[str] = None
         pre_generated = False
-        if req.mode == "sample" and preset_file:
-            # 预置样例：永远走预生成回放（真实流水线的历史产物），不调 LLM
-            pre_generated = True
-            _task_update(task_id, progress=45, stage=2, message="载入预生成转换产物（真实流水线历史产物）…")
-            _task_intermediate(task_id, gen_mode="预生成回放（真实流水线历史产物）")
-            gen_code = preset_file.read_text(encoding="utf-8", errors="replace")
-            time.sleep(0.5)
-        elif _llm_available():
-            # 上传的自有 case：检索 → LLM 真实生成
-            _task_intermediate(task_id, gen_mode="LLM 在线生成")
-            _task_update(task_id, progress=45, stage=2,
-                         message=f"LLM 生成 PaddlePaddle 转换代码（真实调用，约 1–2 分钟，注入 {len(retrieved)} 条知识）…")
-            from herta.config import get_settings
-            from herta.llm.client import BigModelClient, set_stream_sink
-            sink = _live_sink(task_id, ["live"], ["PaddlePaddle 转换代码"])
-            set_stream_sink(sink)
-            messages = _build_paddle_prompt(source_text, analysis, retrieved)
-            raw = BigModelClient().chat(
-                messages=messages, model=get_settings().chat_model, temperature=0.1,
+        modelx_dir = out_dir / "modelx"
+        _task_update(task_id, progress=45, stage=2, message="运行 ModelX CMC 源码级转换…")
+        # ModelX CMC 是确定性的源码级 AST/规则转换器，不依赖 LLM。
+        try:
+            conversion = convert_pytorch_source(src, modelx_dir)
+            gen_code = conversion.code
+            extra_files = conversion.extra_files
+            _task_intermediate(
+                task_id,
+                gen_mode="ModelX CMC 源码级转换（确定性）",
+                conversion_stats={
+                    "success": conversion.success_api_count,
+                    "failed": conversion.failed_api_count,
+                    "rate": conversion.api_success_rate,
+                },
             )
-            sink("flush", "")
-            gen_code = _clean_code(raw)
-            if not gen_code.strip():
-                raise RuntimeError("模型返回内容为空或仅含格式围栏，请重试或更换模型")
-            _live_done(task_id, "live")
+        except (ModuleNotFoundError, ImportError) as modelx_error:
+            if req.mode == "sample" and preset_file:
+                # 预置样例保留离线回放兜底；在安装 ModelX 依赖的环境中，
+                # 同一个样例会优先展示真实 CMC 转换产物。
+                pre_generated = True
+                modelx_fallback_reason = str(modelx_error)
+                _task_update(task_id, progress=45, stage=2, message="ModelX 不可用，载入预生成 Paddle 转换产物…")
+                _task_intermediate(task_id, gen_mode="预生成回放（ModelX 依赖缺失时的离线兜底）")
+                gen_code = preset_file.read_text(encoding="utf-8", errors="replace")
+                companion_dir = PADDLE_PRESET_DIR / name
+                extra_files = {
+                    p.relative_to(companion_dir).as_posix(): p.read_text(encoding="utf-8")
+                    for p in sorted(companion_dir.rglob("*.py"))
+                } if companion_dir.exists() else {}
+                time.sleep(0.5)
+            else:
+                raise RuntimeError(
+                    "ModelX CMC 转换失败：%s。请安装 vendor/modelx/requirements.txt。" % modelx_error
+                ) from modelx_error
+
+        evaluation_steps = [
+            {
+                "name": "ModelX CMC 源码转换",
+                "status": ("failed" if conversion.failed_api_count else "passed") if conversion is not None else "skipped",
+                "detail": (
+                    f"{conversion.success_api_count} 个 API 成功，{conversion.failed_api_count} 个未支持"
+                    if conversion is not None else "使用预生成离线产物"
+                ),
+            },
+            {"name": "Paddle 导入与 dummy 前向", "status": "pending"},
+            {"name": "语法/迁移/结构静态评测", "status": "pending"},
+        ]
+        _task_intermediate(task_id, evaluation_steps=evaluation_steps)
+        script_path = out_dir / f"{name}_to_paddle.py"
+        # Execute the same multi-file artifact shown in the UI, preserving the
+        # relative imports emitted by ModelX. The smoke runner loads a package.
+        script_path.write_text(gen_code, encoding="utf-8")
+        for relative_name, content in extra_files.items():
+            companion = out_dir / relative_name
+            companion.parent.mkdir(parents=True, exist_ok=True)
+            companion.write_text(content, encoding="utf-8")
+        _task_update(task_id, progress=75, stage=2, message="执行 Paddle 产物导入与 dummy 前向检查…")
+        evaluation_steps[1] = {"name": "Paddle 导入与 dummy 前向", "status": "running"}
+        _task_intermediate(task_id, evaluation_steps=evaluation_steps)
+        runtime = run_paddle_smoke_test(script_path, profile=profile)
+
+        if runtime.get("attempted") and runtime.get("error"):
+            runtime_status = "failed"
+            runtime_detail = runtime["error"]
+        elif runtime.get("attempted") and runtime.get("import_ok"):
+            if runtime.get("forward_attempted"):
+                runtime_status = "passed" if runtime.get("forward_ok") else "failed"
+                runtime_detail = "前向输出 " + str(runtime.get("output_shape")) if runtime.get("forward_ok") else runtime.get("error", "前向失败")
+            else:
+                runtime_status = "skipped"
+                runtime_detail = runtime.get("skip_reason", "未找到可默认构造的 Layer")
+        elif runtime.get("attempted"):
+            runtime_status = "failed"
+            runtime_detail = runtime.get("error", "Paddle 导入失败")
         else:
-            raise RuntimeError("上传的自有文件需要配置 LLM API Key（顶栏齿轮设置）；预置样例可直接演示")
-
+            runtime_status = "skipped"
+            runtime_detail = runtime.get("skip_reason", "未执行 Paddle 运行时检查")
+        evaluation_steps[1] = {
+            "name": "Paddle 导入与 dummy 前向",
+            "status": runtime_status,
+            "detail": runtime_detail,
+        }
+        evaluation_steps[2] = {"name": "语法/迁移/结构静态评测", "status": "running"}
+        _task_intermediate(task_id, evaluation_steps=evaluation_steps)
         _task_update(task_id, progress=85, stage=3, message="评测生成代码…")
-        evaluation = _eval_paddle(gen_code, analysis, retrieved, source_text)
-        if not pre_generated and preset_file:
-            evaluation["line_similarity_vs_reference"] = _line_similarity(
-                gen_code, preset_file.read_text(encoding="utf-8", errors="replace")
-            )
-
+        evaluation = _eval_paddle(gen_code, analysis, retrieved, source_text, conversion, runtime,
+                                  companion_files=extra_files)
+        static_names = {"语法合法", "引入 paddle", "无 torch 残留", "网络结构完整（nn.Layer + forward）"}
+        if extra_files:
+            static_names.add("伴随 Python 模块语法合法")
+        if conversion is not None:
+            static_names.add("ModelX 转换器产出代码")
+        static_checks = {k: v for k, v in evaluation.get("checks", {}).items() if k in static_names}
+        static_ok = bool(static_checks) and all(static_checks.values())
+        evaluation_steps[2] = {
+            "name": "语法/迁移/结构静态评测",
+            "status": "passed" if static_ok else "failed",
+            "detail": f"{sum(static_checks.values())}/{len(static_checks)} 项通过",
+        }
+        _task_intermediate(task_id, evaluation_steps=evaluation_steps)
+        if modelx_fallback_reason:
+            evaluation["note"] = (
+                "ModelX CMC 依赖不可用，当前展示预生成 Paddle 产物；原因：%s。 %s"
+                % (modelx_fallback_reason, evaluation.get("note", ""))
+            ).strip()
+        result_files = [{"name": f"{name}_paddle.py", "language": "python", "content": gen_code}]
+        result_files.extend(
+            {"name": relative_name, "language": "python", "content": content}
+            for relative_name, content in extra_files.items()
+        )
         _task_update(task_id, status="completed", progress=100, stage=3, message="完成", result={
             "kb": "paddle", "target": name,
-            "files": [{"name": f"{name}_paddle.py", "language": "python", "content": gen_code}],
+            "files": result_files,
             "evaluation": evaluation, "pre_generated": pre_generated,
         })
     except Exception as e:
@@ -1735,6 +1865,14 @@ def onnx_dataset():
     if not view.exists():
         raise HTTPException(status_code=404, detail="数据集载荷不存在（先运行 server/tools/build_onnx_dataset.py）")
     return json.loads(view.read_text(encoding="utf-8"))
+
+
+@app.get("/api/kb/paddle/dataset")
+def paddle_dataset():
+    """ModelX PyTorch→Paddle 映射规则数据集可视化载荷。"""
+    if not PADDLE_DATASET.exists():
+        raise HTTPException(status_code=404, detail="Paddle 映射规则载荷不存在（先运行 server/tools/build_paddle_dataset.py）")
+    return json.loads(PADDLE_DATASET.read_text(encoding="utf-8"))
 
 
 @app.get("/api/kb/onnx/records")

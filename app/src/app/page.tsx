@@ -50,7 +50,7 @@ const KB_META: Record<string, { icon: typeof Satellite; title: string; subtitle:
     icon: Plane,
     title: "无人机模型部署适配",
     subtitle: "PyTorch → ONNX / PaddlePaddle",
-    desc: "上传 PyTorch 模型源码（.py），注入模型部署适配知识库（两个目标共用同一数据集）：生成 ONNX 导出代码并真实执行导出、产出可下载的 .onnx 模型文件与配套机载 C++ 推理源码；或生成 PaddlePaddle 跨框架转换代码（含语义对齐处理），全流程自动评测。",
+    desc: "上传 PyTorch 模型源码（.py），ONNX 目标检索模型部署适配知识库并真实执行导出，产出可下载的 .onnx 与配套 C++ 推理源码；PaddlePaddle 目标调用内置 ModelX CMC 做确定性的源码级转换，并执行对应评测。",
   },
 };
 
@@ -60,7 +60,7 @@ const KB_CHIP: Record<string, string> = { protocol: "协议", operator: "ONNX", 
 // 模型入口的目标框架选项（值即后端流水线 id；两个目标检索同一套模型部署适配知识库）
 const TARGET_META: Record<"operator" | "paddle", { icon: typeof Satellite; title: string; sub: string }> = {
   operator: { icon: Plane, title: "PyTorch → ONNX", sub: "部署导出 · 产出 .onnx + C++ 推理源码" },
-  paddle: { icon: ArrowLeftRight, title: "PyTorch → PaddlePaddle", sub: "跨框架转换 · 产出 Paddle 模型源码" },
+  paddle: { icon: ArrowLeftRight, title: "PyTorch → PaddlePaddle", sub: "ModelX CMC 源码级转换 · 产出 Paddle 模型源码" },
 };
 
 const STAGES = ["解析输入", "检索知识库", "生成目标代码", "评测结果"];
@@ -166,7 +166,7 @@ function IntermediateView({ data }: { data: TaskIntermediate }) {
   const hasAny =
     data.gen_mode || data.parsed || data.operators ||
     (data.retrieved && data.retrieved.length > 0) || data.retrieval || data.config_stats ||
-    data.live || data.live_config || data.live_handler_plan || data.live_handler;
+    data.conversion_stats || data.evaluation_steps || data.live || data.live_config || data.live_handler_plan || data.live_handler;
   if (!hasAny) return null;
   return (
     <div className="mt-3 space-y-2.5 rounded-lg border border-border/70 bg-card/70 p-3">
@@ -221,7 +221,7 @@ function IntermediateView({ data }: { data: TaskIntermediate }) {
       {data.retrieved && data.retrieved.length > 0 && (
         <div>
           <div className="mb-1 text-[11.5px] text-muted-foreground">
-            检索知识库：命中 <span className="font-bold text-foreground">{data.retrieved.length}</span> 条知识（离线检索，将注入生成上下文）
+            检索知识库：命中 <span className="font-bold text-foreground">{data.retrieved.length}</span> 条知识（离线检索结果）
           </div>
           <div className="code-scroll max-h-[180px] space-y-1 overflow-auto">
             {data.retrieved.map((r, i) => (
@@ -247,6 +247,50 @@ function IntermediateView({ data }: { data: TaskIntermediate }) {
           ))}
         </div>
       )}
+
+      {data.conversion_stats && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10.5px] text-muted-foreground">
+          <span>ModelX CMC 转换统计</span>
+          <span>成功 API：<span className="font-bold text-foreground">{data.conversion_stats.success}</span></span>
+          <span>未支持：<span className="font-bold text-foreground">{data.conversion_stats.failed}</span></span>
+          <span>成功率：<span className="font-bold text-primary">{data.conversion_stats.rate}%</span></span>
+        </div>
+      )}
+
+      <EvaluationStepsView steps={data.evaluation_steps} />
+    </div>
+  );
+}
+
+function EvaluationStepsView({
+  steps,
+  className,
+}: {
+  steps?: TaskIntermediate["evaluation_steps"];
+  className?: string;
+}) {
+  if (!steps || steps.length === 0) return null;
+  return (
+    <div className={cn("rounded-lg bg-muted/50 px-3 py-2", className)}>
+      <div className="mb-1 text-[11px] font-medium text-muted-foreground">Paddle 评估过程</div>
+      {steps.map((step) => (
+        <div key={step.name} className="flex items-center gap-1.5 py-0.5 text-[11px]">
+          {step.status === "passed" ? (
+            <CheckCircle2 size={12} className="shrink-0 text-emerald-500" />
+          ) : step.status === "failed" ? (
+            <XCircle size={12} className="shrink-0 text-destructive" />
+          ) : step.status === "running" ? (
+            <Loader2 size={12} className="shrink-0 animate-spin text-primary" />
+          ) : (
+            <span className="h-3 w-3 shrink-0 rounded-full border border-border" />
+          )}
+          <span className={step.status === "failed" ? "text-destructive" : step.status === "passed" ? "text-foreground/85" : "text-muted-foreground"}>
+            {step.name}
+          </span>
+          {step.status === "skipped" && <span className="text-[10px] text-muted-foreground">（已跳过）</span>}
+          {step.detail && <span className="font-mono text-[9.5px] text-muted-foreground">· {step.detail}</span>}
+        </div>
+      ))}
     </div>
   );
 }
@@ -437,6 +481,9 @@ export default function WorkbenchPage() {
   const sortedTasks = Object.values(tasks).sort((a, b) => b.startedAt - a.startedAt);
   const focused = focusId ? tasks[focusId] : undefined;
   const focusedResult = focused?.result;
+  const focusedPaddleFile = focusedResult?.kb === "paddle"
+    ? focusedResult.files.find((file) => file.language === "python")
+    : undefined;
   // 步骤条第 3/4 步语义：生成 = 有任务在跑或正在查看结果（步骤条保留已完成步骤点亮）；
   // 结果 = 正在查看结果。回到首页（无在跑任务且未聚焦结果）时 3、4 均不亮。
   const anyRunning = sortedTasks.some((t) => isUnfinished(t.state.status));
@@ -615,6 +662,7 @@ export default function WorkbenchPage() {
                 <button
                   key={id}
                   onClick={() => setSource({ mode: "sample", id, label: s.label })}
+                  title={[s.demo_label, s.modelx_variant].filter(Boolean).join(" · ") || s.label}
                   className={cn(
                     "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 font-mono text-[12px] transition-colors",
                     active
@@ -622,9 +670,12 @@ export default function WorkbenchPage() {
                       : "border-border bg-background text-foreground/80 hover:border-primary/40",
                   )}
                 >
-                  {s.name}
+                  {s.demo_label ?? s.name}
                   {s.pre_generated ? (
                     <span className="rounded bg-primary/15 px-1 py-0.5 text-[9px] text-primary">完整演示</span>
+                  ) : null}
+                  {s.modelx_variant ? (
+                    <span title={s.modelx_variant} className="rounded bg-indigo-500/10 px-1 py-0.5 text-[9px] text-indigo-600">底层库改写</span>
                   ) : null}
                 </button>
               );
@@ -867,6 +918,74 @@ export default function WorkbenchPage() {
                   </div>
                 </div>
               )}
+              {focusedResult.kb === "paddle" && focusedPaddleFile && (
+                <div data-testid="paddle-artifact" className="top-beam mb-4 rounded-xl border border-border bg-card p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <FileCode2 size={15} className="text-primary" />
+                    <h3 className="text-[14px] font-semibold">Paddle 转换产物</h3>
+                    <span className="ml-auto rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[9.5px] text-primary">Python 源码</span>
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10.5px] text-muted-foreground">
+                    <span>文件：<span className="text-foreground">{focusedPaddleFile.name}</span></span>
+                    <span>大小：<span className="text-foreground">{(new TextEncoder().encode(focusedPaddleFile.content).byteLength / 1024).toFixed(1)} KB</span></span>
+                    <span>源码文件：<span className="text-foreground">{focusedResult.files.length} 个</span></span>
+                    {focusedResult.evaluation?.stats?.["源文件"] && (
+                      <span>源文件：<span className="text-foreground">{focusedResult.evaluation.stats["源文件"]}</span></span>
+                    )}
+                  </div>
+                  {focusedResult.evaluation?.stats && (
+                    <div className="mt-2 space-y-0.5 border-t border-border/60 pt-2 font-mono text-[10px] text-muted-foreground">
+                      <div className="flex items-center justify-between">
+                        <span>转换器</span>
+                        <span className="font-bold text-foreground">{focusedResult.evaluation.stats["ModelX 转换器"] ?? "ModelX CMC"}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>成功转换 API</span>
+                        <span className="font-bold text-foreground">{focusedResult.evaluation.stats["成功转换 API"] ?? "—"}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>未支持 API</span>
+                        <span className="font-bold text-foreground">{focusedResult.evaluation.stats["未支持 API"] ?? "—"}</span>
+                      </div>
+                      {focusedResult.evaluation.paddle_runtime?.profile_label && (
+                        <div className="flex items-center justify-between">
+                          <span>评估模型</span>
+                          <span className="font-bold text-foreground">{focusedResult.evaluation.paddle_runtime.profile_label}</span>
+                        </div>
+                      )}
+                      {focusedResult.evaluation.paddle_runtime?.input_shape && (
+                        <div className="flex items-center justify-between">
+                          <span>dummy 输入</span>
+                          <span className="font-bold text-foreground">[{focusedResult.evaluation.paddle_runtime.input_shape.join(", ")}]</span>
+                        </div>
+                      )}
+                      {focusedResult.evaluation.paddle_runtime?.output_shape && (
+                        <div className="flex items-center justify-between">
+                          <span>dummy 输出</span>
+                          <span className="font-bold text-foreground">[{focusedResult.evaluation.paddle_runtime.output_shape.join(", ")}]</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {(focusedResult.evaluation?.library_modifications?.length ?? 0) > 0 && (
+                    <div className="mt-2 border-t border-border/60 pt-2 text-[11px]">
+                      <div className="mb-1 font-medium text-indigo-600">ModelX 底层 Python 库改写</div>
+                      {focusedResult.evaluation!.library_modifications!.map((change) => (
+                        <button key={change.file} className="block break-all py-0.5 text-left font-mono text-[10px] text-primary hover:underline"
+                          onClick={() => { const i = focusedResult.files.findIndex((f) => f.name === change.file); if (i >= 0) setActiveFile(i); }}>
+                          {change.file} · {change.classes.join(", ")}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {(focusedResult.evaluation?.compatibility_fixes?.length ?? 0) > 0 && (
+                    <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
+                      样例适配：{focusedResult.evaluation!.compatibility_fixes!.join("；")}
+                    </p>
+                  )}
+                </div>
+              )}
+              <EvaluationStepsView steps={focused.state.intermediate?.evaluation_steps} className="mb-4 border border-border bg-card" />
               <div className="top-beam rounded-xl border border-border bg-card p-4">
                 <h3 className="mb-3 text-[14px] font-semibold">自动评测</h3>
                 {focusedResult.evaluation ? (
@@ -1031,7 +1150,7 @@ export default function WorkbenchPage() {
                     {focusedResult.evaluation.kind === "operator" && (
                       <div>
                         <div className="mb-1.5 text-[11px] text-muted-foreground">
-                          输入算子 {focusedResult.evaluation.total_calls} 个 · 检索注入知识 {focusedResult.evaluation.retrieved_count} 条
+                           输入算子 {focusedResult.evaluation.total_calls} 个 · 检索注入知识 {focusedResult.evaluation.retrieved_count} 条
                         </div>
                         <div className="flex flex-wrap gap-1.5">
                           {focusedResult.evaluation.dynamic_axes && (
@@ -1048,17 +1167,38 @@ export default function WorkbenchPage() {
                       </div>
                     )}
 
-                    {focusedResult.evaluation.kind === "paddle" && (                      <div>
+                    {focusedResult.evaluation.kind === "paddle" && (
+                      <div>
                         <div className="mb-1.5 text-[11px] text-muted-foreground">
-                          输入算子 {focusedResult.evaluation.total_calls} 个 · 检索注入知识 {focusedResult.evaluation.retrieved_count} 条
+                          输入算子 {focusedResult.evaluation.total_calls} 个 · 相关知识 {focusedResult.evaluation.retrieved_count} 条
                         </div>
                         <div className="flex flex-wrap gap-1.5">
                           {(focusedResult.evaluation.custom_wrappers ?? 0) > 0 && (
                             <span className="rounded bg-indigo-500/10 px-1.5 py-0.5 font-mono text-[10px] text-indigo-500">
-                              自定义对齐层 ×{focusedResult.evaluation.custom_wrappers}
+                              自定义对齐类 ×{focusedResult.evaluation.custom_wrappers}
+                            </span>
+                          )}
+                          {focusedResult.evaluation.paddle_runtime?.forward_ok && (
+                            <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] text-emerald-600">
+                              dummy 前向 {focusedResult.evaluation.paddle_runtime.output_shape ? `· ${focusedResult.evaluation.paddle_runtime.output_shape.join("×")}` : "通过"}
+                            </span>
+                          )}
+                          {focusedResult.evaluation.paddle_runtime && !focusedResult.evaluation.paddle_runtime.available && (
+                            <span className="rounded bg-amber-500/10 px-1.5 py-0.5 font-mono text-[10px] text-amber-600">
+                              未安装 Paddle · 已完成静态评测
                             </span>
                           )}
                         </div>
+                        {focusedResult.evaluation.unsupported_apis && Object.keys(focusedResult.evaluation.unsupported_apis).length > 0 && (
+                          <div className="mt-2 rounded-lg bg-amber-500/5 px-2.5 py-2 font-mono text-[10px] text-muted-foreground">
+                            <span>ModelX 未支持 API：</span>
+                            {Object.entries(focusedResult.evaluation.unsupported_apis).map(([name, count]) => (
+                              <span key={name} className="ml-1.5 inline-block rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-700">
+                                {name} ×{count}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -1078,7 +1218,7 @@ export default function WorkbenchPage() {
                           onClick={() => setShowHits((v) => !v)}
                           className="flex items-center gap-1 text-[11.5px] font-medium text-primary"
                         >
-                          检索注入的知识（{focusedResult.evaluation.retrieved.length}）
+                          {focusedResult.kb === "paddle" ? "参考知识（不参与 ModelX 转换）" : "检索注入的知识"}（{focusedResult.evaluation.retrieved.length}）
                           {showHits ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                         </button>
                         {showHits && (

@@ -1,0 +1,77 @@
+{
+  "alexnet": {
+    "label": "AlexNet",
+    "class_name": "AlexNet",
+    "input_shape": [1, 3, 224, 224],
+    "kwargs": {},
+    "expected_output_shape": [1, 1000],
+    "expected_companions": []
+  },
+  "squeezenet": {
+    "label": "SqueezeNet 1.0",
+    "class_name": "SqueezeNet",
+    "input_shape": [1, 3, 224, 224],
+    "kwargs": {"version": "1_0"},
+    "expected_output_shape": [1, 1000],
+    "expected_companions": []
+  },
+  "vgg": {
+    "label": "VGG-11",
+    "class_name": "VGG",
+    "input_shape": [1, 3, 224, 224],
+    "kwargs": {"features": {"call": "make_layers", "args": [{"ref": "cfgs.A"}]}},
+    "expected_output_shape": [1, 1000],
+    "expected_companions": []
+  },
+  "resnet": {
+    "label": "ResNet-18",
+    "class_name": "ResNet",
+    "input_shape": [1, 3, 224, 224],
+    "kwargs": {"block": {"ref": "BasicBlock"}, "layers": [2, 2, 2, 2]},
+    "expected_output_shape": [1, 1000],
+    "expected_companions": []
+  },
+  "mnasnet": {
+    "label": "MNASNet 1.0",
+    "class_name": "MNASNet",
+    "input_shape": [1, 3, 224, 224],
+    "kwargs": {"alpha": 1.0},
+    "expected_output_shape": [1, 1000],
+    "expected_companions": []
+  },
+  "shufflenetv2": {
+    "label": "ShuffleNet-v2 0.5x",
+    "class_name": "ShuffleNetV2",
+    "input_shape": [1, 3, 224, 224],
+    "kwargs": {"stages_repeats": [4, 8, 4], "stages_out_channels": [24, 48, 96, 192, 1024]},
+    "expected_output_shape": [1, 1000],
+    "expected_companions": []
+  },
+  "densenet": {
+    "label": "DenseNet-121",
+    "class_name": "DenseNet",
+    "input_shape": [1, 3, 224, 224],
+    "kwargs": {},
+    "expected_output_shape": [1, 1000],
+    "expected_companions": ["modified_KaimingNormal.py"],
+    "modelx_variant": "Python underlying library：KaimingNormal.forward 的 fan_out 语义改写"
+  },
+  "inception": {
+    "label": "Inception-v3",
+    "class_name": "Inception3",
+    "input_shape": [1, 3, 299, 299],
+    "kwargs": {"aux_logits": false, "init_weights": true},
+    "expected_output_shape": [1, 1000],
+    "expected_companions": ["modified_TruncatedNormal.py"],
+    "modelx_variant": "Python underlying library：TruncatedNormal.forward 的上下界处理改写"
+  },
+  "googlenet": {
+    "label": "GoogLeNet",
+    "class_name": "GoogLeNet",
+    "input_shape": [1, 3, 224, 224],
+    "kwargs": {"aux_logits": false, "init_weights": true},
+    "expected_output_shape": [1, 1000],
+    "expected_companions": ["modified_TruncatedNormal.py"],
+    "modelx_variant": "Python underlying library：TruncatedNormal.forward 的上下界处理改写"
+  }
+}

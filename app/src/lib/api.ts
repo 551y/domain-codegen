@@ -38,6 +38,9 @@ export interface SampleItem {
   has_gt?: boolean;
   pre_generated?: boolean;
   domain?: string;
+  modelx_variant?: string;
+  demo_label?: string;
+  demo_available?: boolean;
 }
 
 export interface RetrievedItem {
@@ -59,6 +62,8 @@ export interface TaskIntermediate {
   retrieved?: RetrievedItem[];
   retrieval?: Record<string, number | string>;
   config_stats?: Record<string, number>;
+  conversion_stats?: { success: number; failed: number; rate: number };
+  evaluation_steps?: { name: string; status: "pending" | "running" | "passed" | "failed" | "skipped"; detail?: string }[];
   gen_mode?: string;
   live?: LiveOutput;
   live_config?: LiveOutput;
@@ -108,6 +113,28 @@ export interface Evaluation {
   uses_paddle?: boolean;
   torch_residue?: boolean;
   custom_wrappers?: number;
+  paddle_runtime?: {
+    attempted: boolean;
+    available?: boolean;
+    import_ok?: boolean;
+    construction_attempted?: boolean;
+    construction_ok?: boolean;
+    forward_attempted?: boolean;
+    forward_ok?: boolean;
+    class_name?: string;
+    output_shape?: (number | string)[];
+    input_shape?: number[];
+    params?: number;
+    profile_label?: string;
+    finite?: boolean;
+    output_shape_ok?: boolean;
+    elapsed_s?: number;
+    error?: string;
+    skip_reason?: string;
+  };
+  unsupported_apis?: Record<string, number>;
+  library_modifications?: { file: string; level: string; classes: string[] }[];
+  compatibility_fixes?: string[];
   total_calls?: number;
   retrieved_count?: number;
   retrieved?: RetrievedItem[];
@@ -195,6 +222,35 @@ export interface OnnxDataset {
   records: OnnxDatasetRecord[];
 }
 
+export interface PaddleDatasetRecord {
+  id: string;
+  title: string;
+  category: string;
+  category_label: string;
+  source: string;
+  text: string;
+  source_api: string;
+  target_api: string;
+  matcher: string;
+  classification?: number | null;
+  params_change: Record<string, string>;
+  framework_version: string;
+  verification_status: string;
+}
+
+export interface PaddleDataset {
+  total: number;
+  categories: { key: string; label: string; count: number }[];
+  composition: {
+    direct: number;
+    parameter_rewrites: number;
+    semantic_rewrites: number;
+    unsupported: number;
+  };
+  files: { path: string; lines: number; note: string }[];
+  records: PaddleDatasetRecord[];
+}
+
 export interface OnnxRecord {
   id: string;
   title: string;
@@ -251,6 +307,8 @@ export const api = {
 
   /** 模型部署适配知识库 · 数据集可视化载荷（1,349 条交付记录 + 对照口径） */
   onnxDataset: () => request<OnnxDataset>("/kb/onnx/dataset"),
+
+  paddleDataset: () => request<PaddleDataset>("/kb/paddle/dataset"),
 
   onnxRecords: (query = "", category = "", limit = 100) =>
     request<{ records: OnnxRecord[]; total: number }>(
