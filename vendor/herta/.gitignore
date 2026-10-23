@@ -55,7 +55,8 @@ output/reports/*/
 output/visualization/*/
 !output/visualization/gdwx/
 data/kb/*
-!data/kb/gdwx/
+!data/kb/industrial_proto/
+!data/kb/baseline_dataset.json
 *.log
 
 # Frontend

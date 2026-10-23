@@ -33,7 +33,7 @@ export default function TopBar() {
           <Link href="/" className="flex items-center gap-2.5">
             <Logo size={30} className="shadow-soft-sm rounded-lg" />
             <div className="text-[14px] font-bold leading-tight tracking-tight">
-              领域知识增强的无人系统代码智能适配平台<span className="text-accent">.</span>
+              领域知识增强的无人系统代码智能适配平台
             </div>
           </Link>
 

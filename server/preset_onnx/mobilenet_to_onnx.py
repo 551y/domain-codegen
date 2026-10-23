@@ -2,9 +2,9 @@ import torch
 import onnx
 from onnx import checker
 
-# 假设导出脚本与源文件同目录运行，直接从源文件导入模型类
-from mobilenetv2 import MobileNetV2
-# from mobilenetv3 import MobileNetV3 # MobileNetV3需要额外的InvertedResidualConfig配置，此处以MobileNetV2为例
+# 假设导出脚本与源模型包同目录运行，从包入口导入模型类（包内相对导入因此可用）
+from mobilenet import MobileNetV2
+# from mobilenet import MobileNetV3 # MobileNetV3需要额外的InvertedResidualConfig配置，此处以MobileNetV2为例
 
 def export_mobilenet_to_onnx():
     # 1. 实例化模型并设置为评估模式

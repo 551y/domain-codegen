@@ -2,9 +2,12 @@ import torch
 import onnx
 from onnx import checker
 import os
+import sys
 
-# 假设源模型代码保存在同目录下的 efficientnet_model.py
-from efficientnet_model import EfficientNet, MBConvConfig, FusedMBConvConfig
+# 源模型为 efficientnet/ 包目录，且包内文件使用扁平导入（from misc import ... / from utils import ...），
+# 故把包目录置于 sys.path 首位，按扁平模块方式导入
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "efficientnet"))
+from efficientnet import EfficientNet, MBConvConfig, FusedMBConvConfig
 
 def export_efficientnet_to_onnx():
     # 1. 实例化模型

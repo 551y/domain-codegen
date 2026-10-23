@@ -1,0 +1,15 @@
+{
+  "source": "industrial_proto",
+  "input_files": [
+    "协议代码数据集2/dataset/augmented（gdwx 253 + dllg 2837）"
+  ],
+  "chunk_strategy": "semantic",
+  "chunk_size": 150,
+  "chunk_overlap": 30,
+  "embedding_model": "embedding-3",
+  "embedding_dimensions": 1024,
+  "chunk_count": 3090,
+  "build_time": "2026-10-18T00:00:00",
+  "version": "2.0",
+  "note": "协议代码数据集2 增强版；向量随数据集交付（智谱 embedding-3，1024 维），格式对齐 herta KB 构建产物"
+}

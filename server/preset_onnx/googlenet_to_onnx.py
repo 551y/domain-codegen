@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import onnx
 
-# 假设源模型代码保存在同目录下的 googlenet_source.py 文件中
-from googlenet_source import GoogLeNet
+# 假设源模型代码保存在同目录下的 googlenet.py 文件中
+from googlenet import GoogLeNet, GoogLeNetOutputs
 
 def main():
     # 1. 实例化模型
@@ -11,6 +11,12 @@ def main():
     # ONNX 不支持 None 类型的输出张量，关闭辅助分支可保证输出结构稳定。
     model = GoogLeNet(num_classes=1000, aux_logits=False, transform_input=True, init_weights=True)
     model.eval()
+
+    # 数据集源码经剪裁缺失 eager_outputs 方法定义（torchvision 原版在类中定义，
+    # 负责把 (logits, aux2, aux1) 封装为 GoogLeNetOutputs namedtuple），forward 中的调用会
+    # 触发 AttributeError；这里按输出契约在实例上补挂同名方法
+    if not hasattr(model, "eager_outputs"):
+        model.eager_outputs = lambda x, aux2, aux1: GoogLeNetOutputs(x, aux2, aux1)
 
     # 2. 包装模型以处理 namedtuple 输出
     # GoogLeNet 的 forward 返回 GoogLeNetOutputs (namedtuple)，ONNX 导出对 namedtuple 支持有限

@@ -2,26 +2,33 @@
 基于RAG的代码生成基本框架 — 集成演示编排后端（domain-codegen）
 
 一个后端统一编排两套知识库的代码生成流水线：
-  - 入口一（协议知识库）：协议文档 → 检索增强 → LLM 生成 config/handler → 本地评测
-  - 入口二（算子映射知识库）：PyTorch 源码 → 命中映射规则 → AST 转换 → 产物评测
+  - 入口一（星务协议知识库）：协议文档 → 检索增强 → LLM 生成 config/handler → 本地评测
+  - 入口二（模型部署适配知识库，ONNX / Paddle 两目标共用同一数据集）：
+      PyTorch→ONNX：BM25 检索 → LLM 生成导出代码 → 子进程真实执行导出（产出可下载的单文件 .onnx）
+      PyTorch→Paddle：BM25 检索 → LLM 生成转换代码 → 迁移彻底性/结构评测
 
-引擎复用：herta（LLM 生成与评测）、opalign/CMC（确定性转换）。本文件只做编排与演示适配。
+引擎复用：herta（LLM 生成与评测）、opalign（样例模型）。本文件只做编排与演示适配。
 """
 
 import ast
 import hashlib
+import io
 import json
 import os
 import re
 import shutil
+import subprocess
+import sys
 import threading
 import time
+import tokenize
 import uuid
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
@@ -41,8 +48,9 @@ HERTA_KB_DIR = HERTA_ROOT / "data" / "kb"
 HERTA_TARGET_DIR = HERTA_ROOT / "data" / "target_proto"
 HERTA_PRE_GEN = HERTA_ROOT / "output" / "generated"
 OPALIGN_MODELS = OPALIGN_ROOT / "EVALUATION" / "datasets" / "models"
-ONNX_DATASET = VENDOR_DIR / "onnx" / "dataset.standardized.jsonl"
+ONNX_DATASET = VENDOR_DIR / "onnx" / "dataset.expanded.jsonl"
 ONNX_PRESET_DIR = PLATFORM_ROOT / "server" / "preset_onnx"
+PADDLE_PRESET_DIR = PLATFORM_ROOT / "server" / "preset_paddle"
 
 for d in (UPLOAD_DIR, GEN_DIR):
     d.mkdir(parents=True, exist_ok=True)
@@ -67,7 +75,7 @@ def _task_create(kind: str) -> str:
     task_id = uuid.uuid4().hex[:12]
     with _tasks_lock:
         tasks[task_id] = {
-            "kind": kind, "status": "pending", "progress": 0,
+            "kind": kind, "status": "pending", "progress": 0, "stage": 0,
             "message": "排队中", "result": None, "error": None,
             "intermediate": {},
         }
@@ -97,27 +105,55 @@ def _live_done(task_id: str, key: str):
             live["done"] = True
 
 
-def _live_sink(task_id: str, key: str, stage_names: list):
-    """生成线程内的流式输出回调：聚合增量文本，节流后写入任务 intermediate[key]。
+def _live_sink(task_id: str, keys: list, stage_names: list, on_begin=None):
+    """生成线程内的流式输出回调：聚合增量文本，节流后写入任务 intermediate。
 
-    kind="begin" 表示一次新的 LLM 调用开始（handler 链有 设计草图→完整代码 两次调用）。
-    仅保留尾部窗口，前端以打字机效果展示，完整文本由最终结果承载。
+    每次 LLM 调用（kind="begin"）占用 keys/stage_names 中对应的一路，独立成框展示；
+    新调用开始时先把上一路**完整落盘**并标记完成再切换，避免后一次调用的输出覆盖前一次
+    （handler 链有 设计草图→完整代码 两次调用，完整代码不再覆盖设计草图）。
+    kind="flush"：一次调用结束，把尚未到节流窗口的尾部增量冲刷落盘（否则结尾显示不完整）。
+    on_begin(call_no)：可选，每次 LLM 调用真正开始时回调（首次 begin 即代表
+    生成器内部的检索阶段已结束，可用于推进任务阶段显示）。
     """
-    state = {"call": 0, "buf": "", "last": 0.0}
+    MAX_CHARS = 300_000  # 安全上限，正常产物（数百行代码/配置）远低于此
+    state = {"call": -1, "buf": "", "last": 0.0}
+
+    def _idx() -> int:
+        return min(state["call"], len(keys) - 1)
+
+    def _flush():
+        if state["call"] >= 0:
+            _task_intermediate(task_id, **{
+                keys[_idx()]: {"stage": stage_names[min(_idx(), len(stage_names) - 1)],
+                               "text": state["buf"][-MAX_CHARS:]},
+            })
 
     def sink(kind: str, text: str):
         if kind == "begin":
+            if state["call"] >= 0:
+                _flush()
+                _live_done(task_id, keys[_idx()])
             state["call"] += 1
             state["buf"] = ""
-            stage = stage_names[min(state["call"] - 1, len(stage_names) - 1)]
-            _task_intermediate(task_id, **{key: {"stage": stage, "text": ""}})
+            _task_intermediate(task_id, **{
+                keys[_idx()]: {"stage": stage_names[min(_idx(), len(stage_names) - 1)], "text": ""},
+            })
+            if on_begin is not None:
+                try:
+                    on_begin(state["call"])
+                except Exception:
+                    pass
+            return
+        if kind == "flush":
+            _flush()
+            return
+        if state["call"] < 0:
             return
         state["buf"] += text
         now = time.monotonic()
         if now - state["last"] >= 0.4:
             state["last"] = now
-            stage = stage_names[min(max(state["call"], 1) - 1, len(stage_names) - 1)]
-            _task_intermediate(task_id, **{key: {"stage": stage, "text": state["buf"][-1500:]}})
+            _flush()
 
     return sink
 
@@ -161,7 +197,7 @@ _onnx_index_cache: Optional[dict] = None
 
 
 def _onnx_kb() -> list:
-    """加载 ONNX 知识库（1814 条标准化记录）"""
+    """加载 ONNX 知识库（1349 条，pytorch-onnx-dataset2 交付版 expanded 数据集）"""
     global _onnx_kb_cache
     if _onnx_kb_cache is None:
         records = []
@@ -308,12 +344,12 @@ EVAL_CACHE = WORKSPACE / "eval_cache"
 
 
 def _cached_protocol_eval(gen_config: Path, gt_config: Path, gen_handler: Path, gt_handler: Path) -> dict:
-    """协议生成结果评测（AST 树编辑距离计算量大，按四文件内容指纹缓存）"""
+    """协议生成结果评测（AST 树编辑距离计算量大，按四文件内容指纹缓存；v2 含维度问题明细与函数匹配明细）"""
     EVAL_CACHE.mkdir(parents=True, exist_ok=True)
     h = hashlib.sha256()
     for p in (gen_config, gt_config, gen_handler, gt_handler):
         h.update(p.read_bytes())
-    cache_file = EVAL_CACHE / f"{h.hexdigest()[:24]}.json"
+    cache_file = EVAL_CACHE / f"{h.hexdigest()[:24]}.v2.json"
     if cache_file.exists():
         return json.loads(cache_file.read_text(encoding="utf-8"))
 
@@ -323,6 +359,8 @@ def _cached_protocol_eval(gen_config: Path, gt_config: Path, gen_handler: Path, 
     gt_funcs = parse_c_functions(str(gt_handler))
     handler_result = match_functions(gen_funcs, gt_funcs)
     overall = config_result.config_similarity * 0.35 + handler_result.handler_similarity * 0.65
+
+    matched = [m for m in handler_result.matches if m.is_matched]
     evaluation = {
         "kind": "full",
         "scores": {
@@ -334,10 +372,35 @@ def _cached_protocol_eval(gen_config: Path, gt_config: Path, gen_handler: Path, 
             "Handler 综合": round(handler_result.handler_similarity, 2),
             "整体加权": round(overall, 2),
         },
+        # 各维度的问题明细（缺失字段/空列表等，可直接指导修正）
+        "issues": {
+            "拓扑结构": config_result.topology_similarity.issues,
+            "命令表": config_result.cmd_list_similarity.issues,
+            "遥测处理": config_result.tele_handler_similarity.issues,
+            "内部处理": config_result.internal_handler_similarity.issues,
+        },
         "functions": {
             "真实函数": len(gt_funcs), "生成函数": len(gen_funcs),
-            "成功匹配": len([m for m in handler_result.matches if m.is_matched]),
+            "成功匹配": len(matched),
+            "其中同名": len([m for m in matched if m.is_name_match]),
+            "未覆盖真实函数": len(handler_result.unmatched_gt_functions),
+            "多生成函数": len(handler_result.unmatched_gen_functions),
         },
+        # 逐函数匹配明细（按 AST 相似度降序）
+        "function_matches": [
+            {
+                "gt": m.gt_func_name, "gen": m.gen_func_name,
+                "matched": m.is_matched, "name_match": m.is_name_match,
+                "ast": round(m.ast_similarity * 100, 1),
+                "tree_edit": round(m.tree_edit_similarity * 100, 1),
+                "semantic": round(m.semantic_feature_similarity * 100, 1),
+            }
+            for m in sorted(handler_result.matches, key=lambda m: -m.ast_similarity)
+        ],
+        "unmatched_gt_functions": handler_result.unmatched_gt_functions,
+        "unmatched_gen_functions": handler_result.unmatched_gen_functions,
+        "match_note": "函数匹配：以 AST 相似度（树编辑距离 + 语义特征加权）构建真实函数 × 生成函数的相似度矩阵，"
+                      "用匈牙利算法求一对一最优分配；相似度 ≥ 30% 判为成功匹配",
     }
     cache_file.write_text(json.dumps(evaluation, ensure_ascii=False), encoding="utf-8")
     return evaluation
@@ -456,8 +519,10 @@ def _doc_protocol_eval(doc_path: Path, config_obj: dict, gen_handler: Path) -> O
         ok = sum(1 for e in entries
                  if isinstance(e, dict) and e.get("handler") and (e.get("desc") or e.get("cmd") is not None))
         scores["字段完整性"] = _pct(ok, len(entries))
+
+    checks = {}
     if gen_handler.exists():
-        scores["Handler 语法可解析"] = 100.0 if syntax_ok else 0.0
+        checks["Handler 语法可解析"] = syntax_ok
 
     weights = {"命令覆盖率": 0.3, "遥测覆盖率": 0.25, "处理函数覆盖率": 0.3, "字段完整性": 0.15}
     wsum = sum(w for k, w in weights.items() if k in scores)
@@ -468,6 +533,7 @@ def _doc_protocol_eval(doc_path: Path, config_obj: dict, gen_handler: Path) -> O
     return {
         "kind": "document",
         "scores": scores,
+        "checks": checks,
         "stats": {
             "文档命令/生成/命中": f"{len(doc_cmds)}/{len(gen_cmds)}/{cmd_hits}",
             "文档遥测/生成/命中": f"{len(doc_signals)}/{len(gen_tele_entries)}/{tele_hits}",
@@ -542,6 +608,34 @@ def list_kbs():
     return {"kbs": [proto, op]}
 
 
+def _vision_samples(preset_dir: Path, preset_suffix: str) -> list:
+    """视觉骨干样例列表（PyTorch 源码 + 预置产物标记）"""
+    out = []
+    for fw_dir in [OPALIGN_MODELS / "pytorch"]:
+        if not fw_dir.exists():
+            continue
+        for domain_dir in sorted(fw_dir.iterdir()):
+            # 仅展示视觉骨干样例（贴合无人机视觉感知部署场景；语音/文本模型保留在数据集中但不进演示列表）
+            if domain_dir.name != "vision":
+                continue
+            src_models = domain_dir / "sourceModels"
+            if not src_models.exists():
+                continue
+            seen = set()
+            for entry in sorted(src_models.iterdir()):
+                name = entry.stem if entry.is_file() else entry.name
+                if name == "__init__" or name in seen:
+                    continue
+                seen.add(name)
+                out.append({
+                    "name": name, "domain": domain_dir.name,
+                    "id": f"pytorch/{domain_dir.name}/{name}",
+                    "label": f"{name}（{domain_dir.name}）",
+                    "pre_generated": (preset_dir / f"{name}{preset_suffix}").exists(),
+                })
+    return out
+
+
 @app.get("/api/samples")
 def list_samples(kb: str):
     """各入口的预置样例"""
@@ -558,31 +652,9 @@ def list_samples(kb: str):
                     })
         return {"samples": out}
     if kb == "operator":
-        out = []
-        for fw_dir in [OPALIGN_MODELS / "pytorch"]:
-            if not fw_dir.exists():
-                continue
-            for domain_dir in sorted(fw_dir.iterdir()):
-                # 仅展示视觉骨干样例（贴合无人机视觉感知部署场景；语音/文本模型保留在数据集中但不进演示列表）
-                if domain_dir.name != "vision":
-                    continue
-                src_models = domain_dir / "sourceModels"
-                if not src_models.exists():
-                    continue
-                seen = set()
-                for entry in sorted(src_models.iterdir()):
-                    name = entry.stem if entry.is_file() else entry.name
-                    if name == "__init__" or name in seen:
-                        continue
-                    seen.add(name)
-                    pre = (ONNX_PRESET_DIR / f"{name}_to_onnx.py").exists()
-                    out.append({
-                        "name": name, "domain": domain_dir.name,
-                        "id": f"pytorch/{domain_dir.name}/{name}",
-                        "label": f"{name}（{domain_dir.name}）",
-                        "pre_generated": pre,
-                    })
-        return {"samples": out}
+        return {"samples": _vision_samples(ONNX_PRESET_DIR, "_to_onnx.py")}
+    if kb == "paddle":
+        return {"samples": _vision_samples(PADDLE_PRESET_DIR, "_to_paddle.py")}
     raise HTTPException(status_code=400, detail="未知知识库")
 
 
@@ -592,13 +664,13 @@ def list_samples(kb: str):
 
 @app.post("/api/upload")
 async def upload_file(kb: str, file: UploadFile = File(...)):
-    """上传待处理文件：protocol → .docx；operator → .py"""
+    """上传待处理文件：protocol → .docx；operator / paddle → .py"""
     ext = Path(file.filename or "").suffix.lower()
     if kb == "protocol" and ext != ".docx":
         raise HTTPException(status_code=400, detail="协议代码生成入口仅支持 .docx 协议文档")
-    if kb == "operator" and ext != ".py":
-        raise HTTPException(status_code=400, detail="模型部署适配入口仅支持 .py 模型源码")
-    if kb not in ("protocol", "operator"):
+    if kb in ("operator", "paddle") and ext != ".py":
+        raise HTTPException(status_code=400, detail="模型类入口仅支持 .py 模型源码（PyTorch）")
+    if kb not in ("protocol", "operator", "paddle"):
         raise HTTPException(status_code=400, detail="未知知识库")
 
     safe = _safe_name(Path(file.filename).stem)
@@ -631,6 +703,8 @@ def generate(req: GenerateRequest):
         target = _run_protocol
     elif req.kb == "operator":
         target = _run_operator
+    elif req.kb == "paddle":
+        target = _run_paddle
     else:
         raise HTTPException(status_code=400, detail="未知知识库")
     threading.Thread(target=target, args=(task_id, req), daemon=True).start()
@@ -655,13 +729,28 @@ def task_result(task_id: str):
     return t["result"]
 
 
+@app.get("/api/result/{task_id}/onnx")
+def download_onnx(task_id: str):
+    """下载任务产出的 .onnx 模型文件（单文件，权重已内嵌）"""
+    t = tasks.get(task_id)
+    if not t or t["status"] != "completed":
+        raise HTTPException(status_code=404, detail="结果不存在")
+    om = (t["result"] or {}).get("onnx_model")
+    if not om:
+        raise HTTPException(status_code=404, detail="该结果无 ONNX 模型文件")
+    path = GEN_DIR / task_id / om["name"]
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="模型文件已被清理")
+    return FileResponse(path, media_type="application/octet-stream", filename=om["name"])
+
+
 # ---------------------------------------------------------------------------
 # 入口一流水线：协议代码生成（herta 引擎）
 # ---------------------------------------------------------------------------
 
 def _run_protocol(task_id: str, req: GenerateRequest):
     try:
-        _task_update(task_id, status="running", progress=5, message="解析目标协议文档…")
+        _task_update(task_id, status="running", progress=5, stage=0, message="解析目标协议文档…")
 
         # 输入定位
         if req.mode == "upload":
@@ -704,11 +793,11 @@ def _run_protocol(task_id: str, req: GenerateRequest):
         if req.mode == "sample" and pre.exists():
             # 预置样例：永远走预生成回放（快且稳），不调 LLM
             pre_generated = True
-            _task_update(task_id, progress=30, message="载入预生成结果（真实流水线历史产物）…")
+            _task_update(task_id, progress=30, stage=2, message="载入预生成结果（真实流水线历史产物）…")
             _task_intermediate(task_id, gen_mode="预生成回放（真实流水线历史产物）")
             shutil.copytree(pre, out_dir, dirs_exist_ok=True)
             time.sleep(0.5)
-            _task_update(task_id, progress=60, message="载入预生成结果…")
+            _task_update(task_id, progress=60, stage=2, message="载入预生成结果…")
             time.sleep(0.5)
         elif _llm_available():
             # 上传的自有 case：真实生成（解析 → 检索 → LLM 生成）
@@ -718,36 +807,51 @@ def _run_protocol(task_id: str, req: GenerateRequest):
             from herta.generator.handler_generator import HandlerGenerator
             from herta.llm.client import set_stream_sink
 
-            _task_update(task_id, progress=15, message="检索协议知识库…")
+            _task_update(task_id, progress=15, stage=1, message="检索协议知识库…")
             _task_intermediate(task_id, gen_mode="LLM 在线生成")
 
             cfg_holder: dict = {}
             err_holder: dict = {}
 
+            def _on_llm_begin(_call_no: int):
+                # 任一条链的首次 LLM 调用开始，说明其内部的知识库检索（RAG 注入前的
+                # 向量检索）已真实完成，全局阶段此时才推进到「生成目标代码」；
+                # 带 stage 守卫，后续 begin（如 handler 的第二次调用）不会回退进度
+                with _tasks_lock:
+                    cur = tasks.get(task_id, {}).get("stage", 0)
+                if cur < 2:
+                    _task_update(task_id, progress=30, stage=2,
+                                 message="LLM 并行生成配置与处理代码（真实调用，通常数分钟）…")
+
             def _gen_config():
-                set_stream_sink(_live_sink(task_id, "live_config", ["配置生成 config.json"]))
+                sink = _live_sink(task_id, ["live_config"], ["配置生成 config.json"],
+                                  on_begin=_on_llm_begin)
+                set_stream_sink(sink)
                 try:
                     cfg_holder["r"] = ConfigGenerator().generate(
                         target_doc_path=doc_path, source_kb_dir=kb_dir,
                         target_name=target_name, top_k=req.top_k, output_dir=out_dir,
                     )
+                    sink("flush", "")
                 except Exception as e:
                     err_holder["config"] = e
 
             def _gen_handler():
-                set_stream_sink(_live_sink(
-                    task_id, "live_handler", ["处理代码 · 设计草图", "处理代码 · 完整代码"]))
+                sink = _live_sink(task_id, ["live_handler_plan", "live_handler"],
+                                  ["处理代码 · 设计草图", "处理代码 · 完整代码"], on_begin=_on_llm_begin)
+                set_stream_sink(sink)
                 try:
                     HandlerGenerator().generate(
                         target_doc_path=doc_path, source_kb_dir=kb_dir,
                         target_name=target_name, top_k=req.top_k, output_dir=out_dir,
                         save_plan=True, intermediate_dir=out_dir / "intermediate",
                     )
+                    sink("flush", "")
                 except Exception as e:
                     err_holder["handler"] = e
 
-            _task_update(task_id, progress=30,
-                         message="LLM 并行生成配置与处理代码（真实调用，通常数分钟）…")
+            # 两条链各自先检索知识库（生成器内部），阶段保持在「检索知识库」，
+            # 直到任一链首次 begin 回调（_on_llm_begin）才推进到生成阶段
             t_cfg = threading.Thread(target=_gen_config, daemon=True)
             t_hdl = threading.Thread(target=_gen_handler, daemon=True)
             t_cfg.start()
@@ -760,7 +864,7 @@ def _run_protocol(task_id: str, req: GenerateRequest):
                 cfg_result is None or (cfg_result.error_message and not cfg_result.config)
             ):
                 # 模型偶发输出格式 glitch（如坏字符导致 JSON 解析失败）：自动重试一次
-                _task_update(task_id, progress=32, message="配置生成结果解析失败，自动重试一次…")
+                _task_update(task_id, progress=32, stage=2, message="配置生成结果解析失败，自动重试一次…")
                 cfg_holder.clear()
                 t_cfg = threading.Thread(target=_gen_config, daemon=True)
                 t_cfg.start()
@@ -781,9 +885,10 @@ def _run_protocol(task_id: str, req: GenerateRequest):
             if not cfg_result.retrieved_chunk_count:
                 retrieval_info["提示"] = "检索注入为 0：embedding 调用可能失败（检查 Key 权限/网络），生成质量会受影响"
             _task_intermediate(task_id, retrieval=retrieval_info, config_stats=cfg_stats)
-            _task_update(task_id, progress=55, message="配置已生成，处理代码生成中…")
+            _task_update(task_id, progress=55, stage=2, message="配置已生成，处理代码生成中…")
 
             t_hdl.join()
+            _live_done(task_id, "live_handler_plan")
             _live_done(task_id, "live_handler")
             if "handler" in err_holder:
                 raise RuntimeError(f"Handler 生成失败: {err_holder['handler']}")
@@ -811,18 +916,19 @@ def _run_protocol(task_id: str, req: GenerateRequest):
 
         # 评测（纯本地计算，始终真实执行；TED 计算量大，按内容指纹缓存）
         evaluation = None
-        _task_update(task_id, progress=85, message="评测生成结果（本地计算）…")
+        _task_update(task_id, progress=85, stage=3, message="评测生成结果（本地计算）…")
         if gt_config and gt_config.exists() and gen_config.exists() and gt_handler.exists() and gen_handler.exists():
             evaluation = _cached_protocol_eval(gen_config, gt_config, gen_handler, gt_handler)
         elif config_obj:
             # 无 ground truth：优先以「上传文档表格提取」为参照做覆盖度评测，提取不到再回退结构检查
             evaluation = _doc_protocol_eval(doc_path, config_obj, gen_handler) or {
                 "kind": "structural",
-                "scores": {
-                    "JSON 结构合法": 100.0,
-                    "顶层字段齐备": 100.0 if all(
+                "scores": {},
+                "checks": {
+                    "JSON 结构合法": True,
+                    "顶层字段齐备": all(
                         k in config_obj for k in ("cmd_list", "tele_handler")
-                    ) else 0.0,
+                    ),
                 },
                 "stats": {
                     "命令条目数": len(config_obj.get("cmd_list", [])),
@@ -831,12 +937,13 @@ def _run_protocol(task_id: str, req: GenerateRequest):
                 "note": "上传的新协议无 ground truth，仅做结构完整性检查",
             }
 
-        _task_update(task_id, status="completed", progress=100, message="完成", result={
+        _task_update(task_id, status="completed", progress=100, stage=3, message="完成", result={
             "kb": "protocol", "target": target_name, "files": files,
             "evaluation": evaluation, "pre_generated": pre_generated,
         })
     except Exception as e:
         _live_done(task_id, "live_config")
+        _live_done(task_id, "live_handler_plan")
         _live_done(task_id, "live_handler")
         _task_update(task_id, status="failed", error=str(e), message=f"失败: {e}")
 
@@ -845,7 +952,7 @@ def _run_protocol(task_id: str, req: GenerateRequest):
 # 入口二流水线：模型部署适配（算子映射知识库检索 + LLM 生成）
 # ---------------------------------------------------------------------------
 
-def _build_onnx_prompt(source_text: str, analysis: dict, retrieved: list) -> list:
+def _build_onnx_prompt(source_text: str, analysis: dict, retrieved: list, module_name: str) -> list:
     """组装 PyTorch→ONNX 导出代码的 LLM 请求（检索到的 ONNX 知识注入）"""
     ops_text = "、".join(f"`{c}`" for c in analysis["calls"][:20]) or "（未检出）"
     knowledge_blocks = []
@@ -871,7 +978,7 @@ def _build_onnx_prompt(source_text: str, analysis: dict, retrieved: list) -> lis
 
 ## 编写要求
 1. 使用 `torch.onnx.export`（或 `torch.onnx.dynamo_export`）导出模型，权重随模型加载
-2. 模型类定义直接从源文件导入（假设导出脚本与源文件同目录运行），构造合理的示例输入
+2. 模型类定义从源文件导入：源文件已在本目录提供为 `{module_name}.py`，请用 `from {module_name} import …` 导入（模块名必须完全一致），构造合理的示例输入
 3. 标注清晰的 input_names / output_names / dynamic_axes（支持动态 batch）
 4. 对知识库中标明需要特殊处理的算子，给出自定义 symbolic 或替代写法，并附注释说明
 5. 导出后用 `onnx.checker.check_model` 校验，并打印导出信息
@@ -897,14 +1004,17 @@ def _clean_code(text: str) -> str:
     return t
 
 
-def _locate_operator_source(req: GenerateRequest):
-    """返回 (源文件/目录 Path, 显示名, 预置导出脚本 或 None)"""
+def _locate_torch_source(req: GenerateRequest, preset_dir: Path, preset_suffix: str):
+    """返回 (源文件/目录 Path, 显示名, 预置产物 或 None)；operator/paddle 两目标共用同一批 PyTorch 样例"""
     if req.mode == "upload":
-        up = UPLOAD_DIR / "operator" / req.source
-        pys = list(up.glob("*.py"))
-        if not pys:
-            raise RuntimeError("上传文件不存在")
-        return pys[0], pys[0].stem, None
+        # 模型类两目标共用上传产物：按 upload_id 跨目录定位（上传时记录的是当时所选目标的目录）
+        for up_kb in ("operator", "paddle"):
+            up = UPLOAD_DIR / up_kb / req.source
+            if up.exists():
+                pys = list(up.glob("*.py"))
+                if pys:
+                    return pys[0], pys[0].stem, None
+        raise RuntimeError("上传文件不存在")
     parts = req.source.split("/")
     if len(parts) != 3:
         raise RuntimeError("样例 id 格式错误")
@@ -913,12 +1023,255 @@ def _locate_operator_source(req: GenerateRequest):
     src = src_dir if src_dir.is_dir() else src_dir.with_suffix(".py")
     if not src.exists():
         raise RuntimeError("样例源码不存在")
-    preset = ONNX_PRESET_DIR / f"{name}_to_onnx.py"
+    preset = preset_dir / f"{name}{preset_suffix}"
     return src, name, (preset if preset.exists() else None)
 
 
-def _eval_onnx(gen_code: str, analysis: dict, retrieved: list) -> dict:
-    """评测生成的 ONNX 导出代码：语法、导出调用完备性、知识覆盖"""
+def _onnx_runtime_available() -> bool:
+    """导出执行环境探测（find_spec 不真正 import，torch 不进入服务进程）"""
+    import importlib.util
+    return importlib.util.find_spec("torch") is not None and importlib.util.find_spec("onnx") is not None
+
+
+# 推理冒烟测试脚本（子进程运行，坏模型崩溃不影响服务进程）
+_ORT_SMOKE_SCRIPT = r"""
+import json, sys
+import numpy as np
+import onnxruntime as ort
+
+s = ort.InferenceSession(sys.argv[1], providers=["CPUExecutionProvider"])
+inp, out = s.get_inputs()[0], s.get_outputs()[0]
+
+def shape_for(batch):
+    # 动态维（符号/None）按 batch 处理；静态维保持
+    return [batch if i == 0 and not isinstance(d, int) else (d if isinstance(d, int) and d > 0 else 1)
+            for i, d in enumerate(inp.shape)]
+
+def run(batch):
+    x = np.random.rand(*shape_for(batch)).astype(np.float32)
+    return list(s.run(None, {inp.name: x})[0].shape)
+
+r1 = run(1)
+res = {"ok": True, "input": inp.name, "output": out.name, "output_shape": r1,
+       "dynamic_batch_dim": not isinstance(inp.shape[0], int)}
+if res["dynamic_batch_dim"]:
+    r3 = run(3)
+    res["dynamic_batch_ok"] = len(r3) == len(r1) and r3[0] == 3 and r3[1:] == r1[1:]
+print("__ORT_RESULT__" + json.dumps(res))
+"""
+
+
+def _ort_smoke_test(model_path: Path) -> dict:
+    """onnxruntime 真实加载 .onnx 并跑 dummy 推理：验证模型可执行；batch 维为符号时实测动态 batch"""
+    try:
+        proc = subprocess.run([sys.executable, "-c", _ORT_SMOKE_SCRIPT, str(model_path)],
+                              capture_output=True, text=True, timeout=180, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "推理冒烟测试超时（180s）"}
+    for line in (proc.stdout or "").splitlines():
+        if line.startswith("__ORT_RESULT__"):
+            return json.loads(line[len("__ORT_RESULT__"):])
+    return {"ok": False, "error": f"冒烟测试失败（exit {proc.returncode}）: {(proc.stderr or '')[-300:]}"}
+
+
+# ONNX Runtime C++ 推理源码模板（无人机机载侧调用 .onnx 产物）
+# IO 名称/形状在运行时从模型文件动态读取（换模型不用改代码）；
+# 若导出阶段已拿到模型元数据，则以注释形式嵌入供人工核对
+_CPP_INFERENCE_TEMPLATE = r'''// @NAME@_inference.cpp —— 无人机机载侧 ONNX 推理调用源码（ONNX Runtime C++ API）
+// 由 domain-codegen 平台在导出流程中自动实例化，与 @MODEL_FILE@ 配套
+//
+// 依赖：ONNX Runtime >= 1.16（https://onnxruntime.ai/，机载端取 CPU 版即可）
+// 编译：g++ -std=c++17 -O2 @NAME@_inference.cpp -o @NAME@_inference \
+//         -I/path/to/onnxruntime/include -L/path/to/onnxruntime/lib -lonnxruntime
+// 运行：将 @MODEL_FILE@ 与可执行文件放在同一目录，执行 ./@NAME@_inference
+
+#include <onnxruntime_cxx_api.h>
+
+#include <algorithm>
+#include <cstdio>
+#include <numeric>
+#include <string>
+#include <vector>
+
+// 生成时读取的模型元数据（供核对；运行时以下方动态查询为准）：
+@META@
+
+int main() {
+    // ---- 会话初始化：机载 CPU 推理；如有算力模组可追加 CUDA/TensorRT Provider ----
+    Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "uav_infer");
+    Ort::SessionOptions session_options;
+    session_options.SetIntraOpNumThreads(4);  // 机载 CPU 线程数按平台算力调整
+    session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+
+    Ort::Session session(env, "@MODEL_FILE@", session_options);
+    Ort::AllocatorWithDefaultOptions allocator;
+
+    // ---- 动态读取输入/输出信息（与模型文件自描述一致，更换模型无需改代码）----
+    std::vector<Ort::AllocatedStringPtr> in_ptrs, out_ptrs;
+    std::vector<const char*> input_names, output_names;
+    for (size_t i = 0; i < session.GetInputCount(); i++) {
+        in_ptrs.push_back(session.GetInputNameAllocated(i, allocator));
+        input_names.push_back(in_ptrs.back().get());
+    }
+    for (size_t i = 0; i < session.GetOutputCount(); i++) {
+        out_ptrs.push_back(session.GetOutputNameAllocated(i, allocator));
+        output_names.push_back(out_ptrs.back().get());
+    }
+
+    auto input_info = session.GetInputTypeInfo(0).GetTensorTypeAndShapeInfo();
+    std::vector<int64_t> input_shape = input_info.GetShape();
+    std::printf("输入 %s [", input_names[0]);
+    for (size_t i = 0; i < input_shape.size(); i++) {
+        if (input_shape[i] < 0) input_shape[i] = 1;  // 动态 batch 维按 1 处理
+        std::printf("%s%lld", i ? ", " : "", (long long)input_shape[i]);
+    }
+    std::printf("]\n输出 %s\n", output_names[0]);
+
+    // ---- 构造输入张量 ----
+    // 实际场景替换为机载相机帧的预处理结果：解码 → resize 到模型输入尺寸 → 归一化 → NCHW 排布
+    size_t input_count = 1;
+    for (int64_t d : input_shape) input_count *= (size_t)d;
+    std::vector<float> input_data(input_count, 0.5f);  // 演示用占位数据
+
+    Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+        memory_info, input_data.data(), input_count, input_shape.data(), input_shape.size());
+
+    // ---- 推理 ----
+    auto outputs = session.Run(Ort::RunOptions{nullptr},
+                               input_names.data(), &input_tensor, input_names.size(),
+                               output_names.data(), output_names.size());
+
+    // ---- 输出解析：分类模型取 Top-5（分割/检测模型在此替换为对应后处理）----
+    float* logits = outputs[0].GetTensorMutableData<float>();
+    size_t out_count = outputs[0].GetTensorTypeAndShapeInfo().GetElementCount();
+    std::vector<size_t> order(out_count);
+    std::iota(order.begin(), order.end(), 0);
+    size_t top_k = out_count < 5 ? out_count : 5;
+    std::partial_sort(order.begin(), order.begin() + top_k, order.end(),
+                      [&](size_t a, size_t b) { return logits[a] > logits[b]; });
+    std::printf("Top-%zu:\n", top_k);
+    for (size_t i = 0; i < top_k; i++)
+        std::printf("  类别 %4zu  置信度 %.4f\n", order[i], logits[order[i]]);
+    return 0;
+}
+'''
+
+
+def _gen_cpp_inference(name: str, onnx_model: Optional[dict]) -> str:
+    """实例化 ONNX Runtime C++ 推理源码模板；有导出元数据时嵌入真实 IO 信息供核对"""
+    if onnx_model:
+        lines = []
+        for io in onnx_model["inputs"]:
+            lines.append(f"//   输入 {io['name']}: [{', '.join(map(str, io['shape']))}]")
+        for io in onnx_model["outputs"]:
+            lines.append(f"//   输出 {io['name']}: [{', '.join(map(str, io['shape']))}]")
+        opset = next((o["version"] for o in onnx_model["opset"] if o["domain"] == "ai.onnx"), "—")
+        lines.append(f"//   opset {opset} · 算子节点 {onnx_model['nodes']} · 模型大小 {onnx_model['size_mb']} MB")
+        meta = "\n".join(lines)
+    else:
+        meta = "//（导出未执行，无元数据；IO 信息将在运行时从 .onnx 动态读取）"
+    return (_CPP_INFERENCE_TEMPLATE
+            .replace("@NAME@", name)
+            .replace("@MODEL_FILE@", f"{name}.onnx")
+            .replace("@META@", meta))
+
+
+def _module_name_for(src: Path) -> str:
+    """源文件在导出执行目录中的可导入模块名（目录型源码用包名；文件名清洗为合法 Python 标识符——
+    上传文件名可能含短横线等非法字符，如 模型源码示例-dronenet.py → 模型源码示例_dronenet）"""
+    if src.is_dir():
+        return src.name
+    mod = re.sub(r"\W", "_", src.stem)
+    if not mod:
+        return "model_source"
+    return f"m_{mod}" if mod[0].isdigit() else mod
+
+
+def _execute_onnx_export(out_dir: Path, script_path: Path, src: Path, name: str, module_name: str) -> dict:
+    """子进程真实执行导出脚本，产出单文件 .onnx（外部权重自动重打包内嵌）并收集模型信息。
+
+    产物交付物是 .onnx 模型文件；脚本本身仍作为代码产物保留展示。
+    """
+    # 源码以可导入的模块名拷入工作目录，保证脚本的 `from <module_name> import ...` 可用
+    # （目录型源码整包拷贝；单文件按清洗后的模块名落地）
+    if src.is_dir():
+        shutil.copytree(src, out_dir / src.name, dirs_exist_ok=True)
+    else:
+        shutil.copy2(src, out_dir / f"{module_name}.py")
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, script_path.name],
+            cwd=out_dir, stdin=subprocess.DEVNULL,
+            capture_output=True, text=True, timeout=300,
+        )
+    except subprocess.TimeoutExpired:
+        return {"attempted": True, "ok": False, "error": "导出脚本执行超时（300s 上限）"}
+
+    log_tail = ((proc.stdout or "") + (proc.stderr or ""))[-800:]
+    produced = sorted(out_dir.rglob("*.onnx"), key=lambda p: p.stat().st_mtime)  # 脚本可能写入子目录，递归扫描
+    if proc.returncode != 0 or not produced:
+        return {"attempted": True, "ok": False, "log": log_tail,
+                "error": f"导出脚本执行失败（exit {proc.returncode}），日志尾部见评测备注"}
+
+    raw_onnx = produced[-1]
+    final_path = out_dir / f"{name}.onnx"
+    try:
+        import onnx
+        m = onnx.load(str(raw_onnx))  # 外部权重（.onnx.data）按文件位置自动解析载入
+        # torch 2.x 新导出器默认权重外部存储 → 重打包为单文件 .onnx，便于下载分发
+        onnx.save_model(m, str(final_path), save_as_external_data=False)
+        try:
+            onnx.checker.check_model(m)
+            checker_ok = True
+        except Exception:
+            checker_ok = False
+        init_names = {i.name for i in m.graph.initializer}
+
+        def _dims(t):
+            return [d.dim_param or d.dim_value for d in t.type.tensor_type.shape.dim]
+
+        inputs = [{"name": i.name, "shape": _dims(i)} for i in m.graph.input if i.name not in init_names]
+        outputs = [{"name": o.name, "shape": _dims(o)} for o in m.graph.output]
+        opset = [{"domain": o.domain or "ai.onnx", "version": o.version} for o in m.opset_import]
+        nodes = len(m.graph.node)
+        # 结构统计：参数量（initializer 维度积求和）与算子类型分布
+        import math as _math
+        from collections import Counter as _Counter
+        params = sum(int(_math.prod(i.dims)) for i in m.graph.initializer if i.dims)
+        op_counts = _Counter(n.op_type for n in m.graph.node).most_common(8)
+    except Exception as e:
+        return {"attempted": True, "ok": False, "log": log_tail,
+                "error": f"ONNX 产物校验/重打包失败: {e}"}
+
+    # 清理中间产物（外部权重 sidecar 与不同名的原始 .onnx）
+    if raw_onnx != final_path:
+        raw_onnx.unlink(missing_ok=True)
+    for sidecar in out_dir.glob("*.onnx.data"):
+        sidecar.unlink(missing_ok=True)
+
+    size = final_path.stat().st_size
+    # 推理冒烟测试（装了 onnxruntime 才做）：真实加载并跑 dummy 推理
+    smoke = None
+    import importlib.util as _ilu
+    if _ilu.find_spec("onnxruntime") is not None:
+        smoke = _ort_smoke_test(final_path)
+    return {
+        "attempted": True, "ok": True, "log": log_tail, "checker": checker_ok, "smoke": smoke,
+        "onnx_model": {
+            "name": final_path.name, "size_bytes": size,
+            "size_mb": round(size / 1024 / 1024, 1),
+            "nodes": nodes, "opset": opset, "inputs": inputs, "outputs": outputs,
+            "checker": checker_ok,
+            "params": params, "params_m": round(params / 1e6, 2),
+            "op_counts": [[op, c] for op, c in op_counts],
+        },
+    }
+
+
+def _eval_onnx(gen_code: str, analysis: dict, retrieved: list, exec_info: dict) -> dict:
+    """评测：脚本静态检查 + 真实执行结果（导出成功 / ONNX 校验）；无 torch 环境时回退为纯静态检查"""
     try:
         ast.parse(gen_code)
         syntax_valid = True
@@ -929,18 +1282,38 @@ def _eval_onnx(gen_code: str, analysis: dict, retrieved: list) -> dict:
     custom_symbolics = len(re.findall(r"custom_symbolic|onnx_symbolic|def .*symbolic", gen_code))
     dynamic_axes = "dynamic_axes" in gen_code
 
-    return {
+    # 通过/失败型检查项（不打百分比）；连续程度分留在 scores
+    checks = {
+        "语法合法（导出脚本）": syntax_valid,
+        "含导出调用（torch.onnx.export）": has_export,
+    }
+    if exec_info.get("attempted"):
+        checks["导出执行成功"] = bool(exec_info.get("ok"))
+        if exec_info.get("ok"):
+            checks["ONNX 校验通过"] = bool(exec_info.get("checker"))
+    else:
+        checks["导出后自检（脚本含 check_model）"] = has_checker
+
+    # 推理冒烟测试（onnxruntime 实跑）：模型不止结构合法，还要可执行
+    smoke = exec_info.get("smoke")
+    if smoke is not None:
+        checks["推理冒烟测试（onnxruntime 实跑）"] = bool(smoke.get("ok"))
+        if smoke.get("ok") and smoke.get("dynamic_batch_dim"):
+            checks["动态 batch 实测"] = bool(smoke.get("dynamic_batch_ok"))
+
+    evaluation = {
         "kind": "operator",
-        "scores": {
-            "语法合法": 100.0 if syntax_valid else 0.0,
-            "含导出调用": 100.0 if has_export else 0.0,
-            "导出后自检": 100.0 if has_checker else 0.0,
-        },
+        "scores": {},
+        "checks": checks,
         "syntax_valid": syntax_valid,
         "has_export_call": has_export,
         "has_checker": has_checker,
         "dynamic_axes": dynamic_axes,
         "custom_symbolics": custom_symbolics,
+        "export_attempted": bool(exec_info.get("attempted")),
+        "export_executed": bool(exec_info.get("ok")),
+        "onnx_checker": bool(exec_info.get("checker")),
+        "smoke_test": smoke,
         "total_calls": analysis["total_calls"],
         "retrieved_count": len(retrieved),
         "retrieved": [
@@ -948,12 +1321,29 @@ def _eval_onnx(gen_code: str, analysis: dict, retrieved: list) -> dict:
             for r in retrieved
         ],
     }
+    om = exec_info.get("onnx_model")
+    if om:
+        # 模型结构统计（从导出的 .onnx 实测）
+        evaluation["stats"] = {
+            "参数量": f"{om['params_m']:,.2f} M",
+            "算子节点": om["nodes"],
+            "算子种类": len(om["op_counts"]),
+            "模型大小": f"{om['size_mb']} MB",
+        }
+        if smoke and smoke.get("ok"):
+            evaluation["stats"]["冒烟输出形状"] = str(smoke["output_shape"])
+    if exec_info.get("error"):
+        evaluation["note"] = f"{exec_info['error']}\n{exec_info.get('log', '')[-400:]}"
+    elif exec_info.get("skip_reason"):
+        evaluation["note"] = exec_info["skip_reason"]
+    return evaluation
 
 
 def _run_operator(task_id: str, req: GenerateRequest):
     try:
-        _task_update(task_id, status="running", progress=5, message="解析模型源码…")
-        src, name, preset_file = _locate_operator_source(req)
+        _task_update(task_id, status="running", progress=5, stage=0, message="解析模型源码…")
+        src, name, preset_file = _locate_torch_source(req, ONNX_PRESET_DIR, "_to_onnx.py")
+        module_name = _module_name_for(src)  # 源文件在导出执行目录中的可导入模块名
 
         if src.is_dir():
             texts = [p.read_text(encoding="utf-8", errors="replace") for p in sorted(src.rglob("*.py"))]
@@ -961,7 +1351,7 @@ def _run_operator(task_id: str, req: GenerateRequest):
         else:
             source_text = src.read_text(encoding="utf-8", errors="replace")
 
-        _task_update(task_id, progress=20, message="检索 ONNX 知识库…")
+        _task_update(task_id, progress=20, stage=1, message="检索模型部署适配知识库…")
         analysis = _analyze_source(source_text)
         # 以模型名 + 算子叶子名为查询，本地 BM25 检索（离线）
         leaf_ops = sorted({c.split(".")[-1] for c in analysis["calls"]})
@@ -978,36 +1368,269 @@ def _run_operator(task_id: str, req: GenerateRequest):
         if req.mode == "sample" and preset_file:
             # 预置样例：永远走预生成回放（真实流水线的历史产物），不调 LLM
             pre_generated = True
-            _task_update(task_id, progress=45, message="载入预生成导出脚本（真实流水线历史产物）…")
+            _task_update(task_id, progress=45, stage=2, message="载入预生成导出脚本（真实流水线历史产物）…")
             _task_intermediate(task_id, gen_mode="预生成回放（真实流水线历史产物）")
             gen_code = preset_file.read_text(encoding="utf-8", errors="replace")
             time.sleep(0.5)
         elif _llm_available():
             # 上传的自有 case：检索 → LLM 真实生成
             _task_intermediate(task_id, gen_mode="LLM 在线生成")
-            _task_update(task_id, progress=45, message=f"LLM 生成 ONNX 导出代码（真实调用，约 1–2 分钟，注入 {len(retrieved)} 条知识）…")
+            _task_update(task_id, progress=45, stage=2, message=f"LLM 生成 ONNX 导出代码（真实调用，约 1–2 分钟，注入 {len(retrieved)} 条知识）…")
             from herta.config import get_settings
             from herta.llm.client import BigModelClient, set_stream_sink
-            set_stream_sink(_live_sink(task_id, "live", ["ONNX 导出代码"]))
-            messages = _build_onnx_prompt(source_text, analysis, retrieved)
+            sink = _live_sink(task_id, ["live"], ["ONNX 导出代码"])
+            set_stream_sink(sink)
+            messages = _build_onnx_prompt(source_text, analysis, retrieved, module_name)
             raw = BigModelClient().chat(
                 messages=messages, model=get_settings().chat_model, temperature=0.1,
             )
+            sink("flush", "")
             gen_code = _clean_code(raw)
             _live_done(task_id, "live")
         else:
             raise RuntimeError("上传的自有文件需要配置 LLM API Key（顶栏齿轮设置）；预置样例可直接演示")
 
-        _task_update(task_id, progress=85, message="评测生成代码…")
-        evaluation = _eval_onnx(gen_code, analysis, retrieved)
+        # 真实执行导出脚本，产出可下载的 .onnx 模型文件（torch/onnx 可用时；子进程隔离运行）
+        out_dir = GEN_DIR / task_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+        script_path = out_dir / f"{name}_to_onnx.py"
+        script_path.write_text(gen_code, encoding="utf-8")
+        onnx_model = None
+        exec_info: dict = {"attempted": False}
+        if _onnx_runtime_available():
+            _task_update(task_id, progress=65, stage=2,
+                         message="执行导出脚本，产出 ONNX 模型文件（真实运行 torch.onnx.export）…")
+            exec_info = _execute_onnx_export(out_dir, script_path, src, name, module_name)
+            onnx_model = exec_info.get("onnx_model")
+        else:
+            exec_info["skip_reason"] = "当前环境未安装 torch/onnx，仅交付导出脚本（部署环境安装后可现场产出 .onnx）"
+
+        # 生成配套的机载侧 C++ 推理源码（ONNX Runtime 模板实例化；有导出元数据时嵌入真实 IO）
+        _task_update(task_id, progress=78, stage=2, message="生成 C++ 推理调用源码（模板实例化 + 模型 IO 元数据）…")
+        cpp_code = _gen_cpp_inference(name, onnx_model)
+        (out_dir / f"{name}_inference.cpp").write_text(cpp_code, encoding="utf-8")
+
+        _task_update(task_id, progress=85, stage=3, message="评测生成代码…")
+        evaluation = _eval_onnx(gen_code, analysis, retrieved, exec_info)
+        evaluation["checks"]["C++ 推理源码生成"] = True
+        evaluation["cpp_inference"] = True
         if not pre_generated and preset_file:
             evaluation["line_similarity_vs_reference"] = _line_similarity(
                 gen_code, preset_file.read_text(encoding="utf-8", errors="replace")
             )
 
-        _task_update(task_id, status="completed", progress=100, message="完成", result={
+        _task_update(task_id, status="completed", progress=100, stage=3, message="完成", result={
             "kb": "operator", "target": name,
-            "files": [{"name": f"{name}_to_onnx.py", "language": "python", "content": gen_code}],
+            "files": [{"name": f"{name}_to_onnx.py", "language": "python", "content": gen_code},
+                      {"name": f"{name}_inference.cpp", "language": "cpp", "content": cpp_code}],
+            "onnx_model": onnx_model,
+            "evaluation": evaluation, "pre_generated": pre_generated,
+        })
+    except Exception as e:
+        _live_done(task_id, "live")
+        _task_update(task_id, status="failed", error=str(e), message=f"失败: {e}")
+
+
+# ---------------------------------------------------------------------------
+# 入口二 · Paddle 目标：PyTorch → PaddlePaddle 跨框架转换
+# （与 ONNX 目标共用同一套「模型部署适配知识库」，不再单独维护映射表数据集）
+# ---------------------------------------------------------------------------
+
+def _build_paddle_prompt(source_text: str, analysis: dict, retrieved: list) -> list:
+    """组装 PyTorch→Paddle 转换代码的 LLM 请求（注入统一知识库中检索到的算子语义/映射知识）"""
+    ops_text = "、".join(f"`{c}`" for c in analysis["calls"][:20]) or "（未检出）"
+    knowledge_blocks = []
+    for i, rec in enumerate(retrieved, 1):
+        knowledge_blocks.append(
+            f"【知识 {i}】{rec['category_label']} · {rec['title']}（来源: {rec['source']}）\n"
+            f"{rec['content'][:1200]}"
+        )
+    knowledge_text = "\n\n".join(knowledge_blocks) if knowledge_blocks else "（未检索到相关知识）"
+
+    system = (
+        "你是一位资深的深度学习框架迁移工程师，精通 PyTorch → PaddlePaddle 的源代码级转换"
+        "（API 映射、参数语义对齐、缺失算子用目标框架基础算子合成、初始化策略对齐）。"
+        "你的任务是把给定的 PyTorch 模型源码完整迁移为等价、可运行的 PaddlePaddle 代码。"
+    )
+    user = f"""# PyTorch → PaddlePaddle 模型代码转换
+
+## 源码中检出的 torch 算子
+{ops_text}
+
+## 从模型部署适配知识库检索到的相关知识（算子语义/映射/修复案例，供转换参考）
+{knowledge_text}
+
+## 编写要求
+1. 全量迁移到 PaddlePaddle：`import paddle` / `paddle.nn`，`nn.Module` → `paddle.nn.Layer`，禁止残留任何 torch 引用
+2. API 对应关系按两框架官方约定改写（如 `torch.cat` → `paddle.concat`、`dim` → `axis`、`start_dim` → `start_axis`、`bias` → `bias_attr`、`eps` → `epsilon`）
+3. 初始化函数（`torch.nn.init.*`）改用 `paddle.nn.initializer.*` 策略，以构造参数或权重重写方式落地
+4. 目标框架缺失的算子用 paddle 基础算子合成等价逻辑，并附注释说明
+5. 无法直接对齐的语义差异，封装为 `Modified_XXX` 自定义 Layer 并注释原因
+6. 保持类名、forward 输入输出语义与源模型一致
+
+## 源模型代码（PyTorch）
+```python
+{source_text}
+```
+
+## 输出要求
+仅输出完整的 Python 转换代码，不要输出解释文字或 markdown 围栏。
+"""
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def _code_without_comments(src: str) -> str:
+    """剥离注释（评测 torch 残留用，避免「torch.cat → paddle.concat」这类对齐注释误判）"""
+    try:
+        toks = (t for t in tokenize.generate_tokens(io.StringIO(src).readline)
+                if t.type != tokenize.COMMENT)
+        return tokenize.untokenize(toks)
+    except Exception:
+        return src
+
+
+def _eval_paddle(gen_code: str, analysis: dict, retrieved: list, source_text: str = "") -> dict:
+    """评测生成的 Paddle 转换代码：语法、框架迁移彻底性、结构完整性 + 与源模型的结构对齐度"""
+    try:
+        ast.parse(gen_code)
+        syntax_valid = True
+    except SyntaxError:
+        syntax_valid = False
+
+    code_only = _code_without_comments(gen_code)
+    uses_paddle = bool(re.search(r"(?m)^\s*(import|from)\s+paddle\b", code_only))
+    torch_residue = bool(
+        re.search(r"(?m)^\s*(import|from)\s+torch\b", code_only)
+        or re.search(r"(?<![\w.])torch\.", code_only)
+    )
+    has_layer = "nn.Layer" in code_only
+    has_forward = "def forward" in code_only
+    wrappers = len(re.findall(r"class\s+Modified_\w+", code_only))
+
+    scores = {}
+    # 通过/失败型检查项
+    checks = {
+        "语法合法": syntax_valid,
+        "引入 paddle": uses_paddle,
+        "无 torch 残留": not torch_residue,
+        "网络结构完整（nn.Layer + forward）": has_layer and has_forward,
+    }
+
+    # 结构对齐（静态指标，无需 paddle 运行时）：
+    # 主类名一致 / 层构造数量对齐 / forward 中 self.* 调用序列相似度
+    if source_text:
+        src_classes = re.findall(r"class\s+(\w+)\s*\(\s*nn\.Module\s*\)", source_text)
+        gen_classes = set(re.findall(r"class\s+(\w+)\s*\(\s*(?:nn\.)?Layer\s*\)", code_only))
+        if src_classes:
+            preserved = sum(1 for c in src_classes if c in gen_classes)
+            scores["类结构对齐"] = round(preserved / len(src_classes) * 100, 1)
+
+        src_layers = re.findall(r"nn\.([A-Z]\w*)\s*\(", source_text)
+        gen_layers = re.findall(r"nn\.([A-Z]\w*)\s*\(", code_only)
+        if src_layers and gen_layers:
+            scores["层数量对齐"] = round(min(len(src_layers), len(gen_layers))
+                                       / max(len(src_layers), len(gen_layers)) * 100, 1)
+
+        def _forward_calls(code: str) -> list:
+            try:
+                tree = ast.parse(code)
+            except SyntaxError:
+                return []
+            calls = []
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef):
+                    for item in node.body:
+                        if isinstance(item, (ast.FunctionDef,)) and item.name == "forward":
+                            for sub in ast.walk(item):
+                                if (isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
+                                        and isinstance(sub.func.value, ast.Name) and sub.func.value.id == "self"):
+                                    calls.append(sub.func.attr)
+            return calls
+
+        src_seq, gen_seq = _forward_calls(source_text), _forward_calls(code_only)
+        if src_seq and gen_seq:
+            import difflib
+            scores["forward 调用对齐"] = round(
+                difflib.SequenceMatcher(None, src_seq, gen_seq).ratio() * 100, 1)
+
+    return {
+        "kind": "paddle",
+        "scores": scores,
+        "checks": checks,
+        "syntax_valid": syntax_valid,
+        "uses_paddle": uses_paddle,
+        "torch_residue": torch_residue,
+        "custom_wrappers": wrappers,
+        "total_calls": analysis["total_calls"],
+        "retrieved_count": len(retrieved),
+        "retrieved": [
+            {"title": r["title"], "category_label": r["category_label"], "score": r["score"], "source": r["source"]}
+            for r in retrieved
+        ],
+    }
+
+
+def _run_paddle(task_id: str, req: GenerateRequest):
+    try:
+        _task_update(task_id, status="running", progress=5, stage=0, message="解析模型源码…")
+        src, name, preset_file = _locate_torch_source(req, PADDLE_PRESET_DIR, "_to_paddle.py")
+
+        if src.is_dir():
+            texts = [p.read_text(encoding="utf-8", errors="replace") for p in sorted(src.rglob("*.py"))]
+            source_text = "\n\n".join(texts)
+        else:
+            source_text = src.read_text(encoding="utf-8", errors="replace")
+
+        _task_update(task_id, progress=20, stage=1, message="检索模型部署适配知识库…")
+        analysis = _analyze_source(source_text)
+        leaf_ops = sorted({c.split(".")[-1] for c in analysis["calls"]})
+        # 与 ONNX 目标共用同一数据集：查询中注入 Paddle 转换意图，偏向算子映射/语义类知识
+        query = f"{name} PyTorch Paddle 转换 算子映射 " + " ".join(leaf_ops[:12])
+        retrieved = _onnx_retrieve(query, top_k=8)
+        _task_intermediate(
+            task_id,
+            operators={"total_calls": analysis["total_calls"], "leaf_ops": leaf_ops},
+            retrieved=[{"title": r["title"], "category_label": r["category_label"],
+                        "score": r["score"], "source": r["source"]} for r in retrieved],
+        )
+
+        pre_generated = False
+        if req.mode == "sample" and preset_file:
+            # 预置样例：永远走预生成回放（真实流水线的历史产物），不调 LLM
+            pre_generated = True
+            _task_update(task_id, progress=45, stage=2, message="载入预生成转换产物（真实流水线历史产物）…")
+            _task_intermediate(task_id, gen_mode="预生成回放（真实流水线历史产物）")
+            gen_code = preset_file.read_text(encoding="utf-8", errors="replace")
+            time.sleep(0.5)
+        elif _llm_available():
+            # 上传的自有 case：检索 → LLM 真实生成
+            _task_intermediate(task_id, gen_mode="LLM 在线生成")
+            _task_update(task_id, progress=45, stage=2,
+                         message=f"LLM 生成 PaddlePaddle 转换代码（真实调用，约 1–2 分钟，注入 {len(retrieved)} 条知识）…")
+            from herta.config import get_settings
+            from herta.llm.client import BigModelClient, set_stream_sink
+            sink = _live_sink(task_id, ["live"], ["PaddlePaddle 转换代码"])
+            set_stream_sink(sink)
+            messages = _build_paddle_prompt(source_text, analysis, retrieved)
+            raw = BigModelClient().chat(
+                messages=messages, model=get_settings().chat_model, temperature=0.1,
+            )
+            sink("flush", "")
+            gen_code = _clean_code(raw)
+            _live_done(task_id, "live")
+        else:
+            raise RuntimeError("上传的自有文件需要配置 LLM API Key（顶栏齿轮设置）；预置样例可直接演示")
+
+        _task_update(task_id, progress=85, stage=3, message="评测生成代码…")
+        evaluation = _eval_paddle(gen_code, analysis, retrieved, source_text)
+        if not pre_generated and preset_file:
+            evaluation["line_similarity_vs_reference"] = _line_similarity(
+                gen_code, preset_file.read_text(encoding="utf-8", errors="replace")
+            )
+
+        _task_update(task_id, status="completed", progress=100, stage=3, message="完成", result={
+            "kb": "paddle", "target": name,
+            "files": [{"name": f"{name}_paddle.py", "language": "python", "content": gen_code}],
             "evaluation": evaluation, "pre_generated": pre_generated,
         })
     except Exception as e:
@@ -1018,6 +1641,20 @@ def _run_operator(task_id: str, req: GenerateRequest):
 # ---------------------------------------------------------------------------
 # API：知识库浏览（两套知识库内容查看）
 # ---------------------------------------------------------------------------
+
+BASELINE_DATASET = HERTA_KB_DIR / "baseline_dataset.json"
+
+
+@app.get("/api/kb/protocol/dataset")
+def protocol_dataset():
+    """星务协议知识库的基本数据集可视化载荷（356 条原始基线 + 增强 3090 对照统计）。
+
+    由 server/tools/build_baseline_dataset.py 从 协议代码数据集2 打包生成。
+    """
+    if not BASELINE_DATASET.exists():
+        raise HTTPException(status_code=404, detail="基本数据集载荷不存在（先运行 server/tools/build_baseline_dataset.py）")
+    return json.loads(BASELINE_DATASET.read_text(encoding="utf-8"))
+
 
 @app.get("/api/kb/protocol/chunks")
 def protocol_chunks(query: str = "", limit: int = 100):
@@ -1051,6 +1688,18 @@ def protocol_chunks(query: str = "", limit: int = 100):
                     "text_preview": text[:400],
                 })
     return {"chunks": items, "total": total, "source": source}
+
+
+@app.get("/api/kb/onnx/dataset")
+def onnx_dataset():
+    """模型部署适配知识库的数据集可视化载荷（1,349 条交付记录 + 基线/增量/筛选对照）。
+
+    由 server/tools/build_onnx_dataset.py 从 pytorch-onnx-dataset2 打包生成。
+    """
+    view = ONNX_DATASET.parent / "dataset_view.json"
+    if not view.exists():
+        raise HTTPException(status_code=404, detail="数据集载荷不存在（先运行 server/tools/build_onnx_dataset.py）")
+    return json.loads(view.read_text(encoding="utf-8"))
 
 
 @app.get("/api/kb/onnx/records")

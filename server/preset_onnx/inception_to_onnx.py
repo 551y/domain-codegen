@@ -3,8 +3,8 @@ import torch.nn.functional as F
 import onnx
 from onnx import helper, AttributeProto
 
-# 假设源模型代码保存为同目录下的 model_source.py
-from model_source import Inception3
+# 假设源模型代码保存为同目录下的 inception.py
+from inception import Inception3, InceptionOutputs
 
 # 定义一个包装器，确保模型只返回主 logits 张量，便于 ONNX 导出和推理部署
 class InceptionWrapper(torch.nn.Module):
@@ -21,6 +21,11 @@ if __name__ == "__main__":
     # 1. 实例化模型并设置为评估模式
     # 设置 aux_logits=False 关闭辅助分类器，init_weights=True 抑制警告
     model = Inception3(num_classes=1000, aux_logits=False, init_weights=True)
+    # 数据集源码经剪裁缺失 eager_outputs 方法定义（torchvision 原版在类中定义，
+    # 负责把 (logits, aux) 封装为 InceptionOutputs namedtuple），forward 中的调用会触发
+    # AttributeError；这里按输出契约在实例上补挂同名方法
+    if not hasattr(model, "eager_outputs"):
+        model.eager_outputs = lambda x, aux: InceptionOutputs(x, aux)
     model = InceptionWrapper(model)
     model.eval()
 
@@ -53,10 +58,13 @@ if __name__ == "__main__":
 
     # 4. 导出 ONNX 模型
     print("Starting ONNX export...")
+    # 使用经典 TorchScript 导出器（dynamo=False）：torch 2.9+ 默认的 dynamo 导出器
+    # 对 Inception3 的辅助输出结构支持不佳
     torch.onnx.export(
         model,
         dummy_input,
         onnx_path,
+        dynamo=False,  # 经典 TorchScript 导出路径
         opset_version=14, # 选用 14 保证算子兼容性
         input_names=["input"],
         output_names=["logits"],

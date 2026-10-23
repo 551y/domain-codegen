@@ -51,13 +51,17 @@ def main():
     onnx_model = onnx.load(onnx_file_path)
     
     # 根据 Knowledge 2，部分 PyTorch 版本可能错误地将 allowzero 属性生成为布尔值
-    # 这里进行后处理修复，确保其类型为 INT
+    # 这里进行后处理修复，确保其类型为 INT（新版 onnx 枚举无 BOOL，按 FLOAT/STRING 异常类型识别）
     for node in onnx_model.graph.node:
         for attr in node.attribute:
-            if attr.name == "allowzero" and attr.type == AttributeProto.BOOL:
+            if attr.name == "allowzero" and attr.type != AttributeProto.INT:
+                if attr.type == AttributeProto.FLOAT:
+                    attr.i = int(attr.f)
+                    attr.ClearField("f")
+                else:
+                    attr.i = 1
+                    attr.ClearField("s")
                 attr.type = AttributeProto.INT
-                attr.i = 1
-                attr.ClearField("b")
     
     onnx.save(onnx_model, onnx_file_path)
     

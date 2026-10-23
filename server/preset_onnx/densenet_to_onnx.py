@@ -5,7 +5,7 @@ from onnx import AttributeProto
 
 # 假设导出脚本与源文件同目录运行，直接从源文件导入模型类
 # 请确保源文件名为 model_source.py 或修改此处的导入路径
-from model_source import DenseNet
+from densenet import DenseNet
 
 # --- 特殊算子处理 ---
 # 1. adaptive_avg_pool2d 替代写法 (参考知识6：动态形状下替换为 avg_pool2d 以避免推导问题)
@@ -41,11 +41,14 @@ def main():
     onnx_file_path = "densenet.onnx"
 
     # 导出模型 (参考知识8：PyTorch 2.5+ 推荐使用 dynamo=True)
+    # 使用经典 TorchScript 导出器（dynamo=False）：torch 2.9+ 默认的 dynamo 导出器
+    # 对本模型的控制流/辅助输出支持不佳，且会做 opset 版本降级转换（部分算子转换有坑）
     torch.onnx.export(
         model,
         dummy_input,
         onnx_file_path,
         export_params=True,
+        dynamo=False,  # 经典 TorchScript 导出路径
         opset_version=14, # 选择支持所需算子 (如 Flatten, Relu) 的 opset
         do_constant_folding=True,
         input_names=['input'],
@@ -54,7 +57,6 @@ def main():
             'input': {0: 'batch_size'},
             'output': {0: 'batch_size'}
         },
-        dynamo=True # 使用基于 torch.export 的推荐导出器
     )
 
     # --- 后处理与校验 ---

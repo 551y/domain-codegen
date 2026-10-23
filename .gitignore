@@ -16,3 +16,6 @@ server/workspace/generated/
 
 # 系统
 .DS_Store
+
+# 构建缓存
+app/tsconfig.tsbuildinfo
