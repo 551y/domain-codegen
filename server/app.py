@@ -1067,7 +1067,9 @@ def _ort_smoke_test(model_path: Path) -> dict:
     """onnxruntime 真实加载 .onnx 并跑 dummy 推理：验证模型可执行；batch 维为符号时实测动态 batch"""
     try:
         proc = subprocess.run([sys.executable, "-c", _ORT_SMOKE_SCRIPT, str(model_path)],
-                              capture_output=True, text=True, timeout=180, stdin=subprocess.DEVNULL)
+                              capture_output=True, text=True, encoding="utf-8", errors="replace",
+                              env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
+                              timeout=180, stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "推理冒烟测试超时（180s）"}
     for line in (proc.stdout or "").splitlines():
@@ -1203,10 +1205,14 @@ def _execute_onnx_export(out_dir: Path, script_path: Path, src: Path, name: str,
         shutil.copy2(src, out_dir / f"{module_name}.py")
 
     try:
+        # 子进程强制 UTF-8：Windows 中文环境默认 GBK，torch 导出器进度打印含 ✅ 等字符会
+        # UnicodeEncodeError 崩掉导出；父进程按 UTF-8 读回日志
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
         proc = subprocess.run(
             [sys.executable, script_path.name],
             cwd=out_dir, stdin=subprocess.DEVNULL,
-            capture_output=True, text=True, timeout=300,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            env=env, timeout=300,
         )
     except subprocess.TimeoutExpired:
         return {"attempted": True, "ok": False, "error": "导出脚本执行超时（300s 上限）"}
