@@ -105,6 +105,21 @@ def _live_done(task_id: str, key: str):
             live["done"] = True
 
 
+def _gen_failure(result) -> Optional[str]:
+    """识别生成器「吞错误」的返回：herta 生成器把解析/检索/LLM 异常包装进结果对象
+    （error_message 非空、is_valid_json/is_valid=False），不抛异常——编排层必须显式检查，
+    否则错误结果会被当作成功继续交付（产物文件缺失、任务却标记完成）。"""
+    if result is None:
+        return "生成器未返回结果"
+    msg = getattr(result, "error_message", None)
+    if msg:
+        return str(msg)
+    valid = getattr(result, "is_valid_json", getattr(result, "is_valid", True))
+    if valid is False:
+        return "生成结果无效（is_valid=False）"
+    return None
+
+
 def _live_sink(task_id: str, keys: list, stage_names: list, on_begin=None):
     """生成线程内的流式输出回调：聚合增量文本，节流后写入任务 intermediate。
 
@@ -811,6 +826,7 @@ def _run_protocol(task_id: str, req: GenerateRequest):
             _task_intermediate(task_id, gen_mode="LLM 在线生成")
 
             cfg_holder: dict = {}
+            hdl_holder: dict = {}
             err_holder: dict = {}
 
             def _on_llm_begin(_call_no: int):
@@ -841,7 +857,7 @@ def _run_protocol(task_id: str, req: GenerateRequest):
                                   ["处理代码 · 设计草图", "处理代码 · 完整代码"], on_begin=_on_llm_begin)
                 set_stream_sink(sink)
                 try:
-                    HandlerGenerator().generate(
+                    hdl_holder["r"] = HandlerGenerator().generate(
                         target_doc_path=doc_path, source_kb_dir=kb_dir,
                         target_name=target_name, top_k=req.top_k, output_dir=out_dir,
                         save_plan=True, intermediate_dir=out_dir / "intermediate",
@@ -860,20 +876,20 @@ def _run_protocol(task_id: str, req: GenerateRequest):
             # config 通常先完成：先展示其中间产物，handler 继续跑
             t_cfg.join()
             cfg_result = cfg_holder.get("r")
-            if "config" not in err_holder and (
-                cfg_result is None or (cfg_result.error_message and not cfg_result.config)
-            ):
-                # 模型偶发输出格式 glitch（如坏字符导致 JSON 解析失败）：自动重试一次
-                _task_update(task_id, progress=32, stage=2, message="配置生成结果解析失败，自动重试一次…")
+            if "config" not in err_holder and _gen_failure(cfg_result):
+                # 生成器把失败吞进了返回值（模型格式 glitch / 检索或调用失败等）：自动重试一次
+                _task_update(task_id, progress=32, stage=2,
+                             message=f"配置生成失败（{_gen_failure(cfg_result)}），自动重试一次…")
                 cfg_holder.clear()
                 t_cfg = threading.Thread(target=_gen_config, daemon=True)
                 t_cfg.start()
                 t_cfg.join()
             if "config" in err_holder:
                 raise RuntimeError(f"Config 生成失败: {err_holder['config']}")
-            cfg_result = cfg_holder.get("r")
-            if cfg_result is None or (cfg_result.error_message and not cfg_result.config):
-                raise RuntimeError(f"Config 生成失败: {getattr(cfg_result, 'error_message', '未知错误')}")
+            cfg_err = _gen_failure(cfg_holder.get("r"))
+            if cfg_err:
+                raise RuntimeError(f"Config 生成失败: {cfg_err}")
+            cfg_result = cfg_holder["r"]
             _live_done(task_id, "live_config")
             cfg_stats = {}
             if cfg_result.config:
@@ -892,6 +908,9 @@ def _run_protocol(task_id: str, req: GenerateRequest):
             _live_done(task_id, "live_handler")
             if "handler" in err_holder:
                 raise RuntimeError(f"Handler 生成失败: {err_holder['handler']}")
+            hdl_err = _gen_failure(hdl_holder.get("r"))
+            if hdl_err:
+                raise RuntimeError(f"Handler 生成失败: {hdl_err}")
         else:
             raise RuntimeError("上传的自有文件需要配置 LLM API Key（顶栏齿轮设置）；预置样例可直接演示")
 
@@ -913,6 +932,10 @@ def _run_protocol(task_id: str, req: GenerateRequest):
         if plan_file.exists():
             files.insert(0, {"name": "handler_plan.md（设计草图）", "language": "markdown",
                              "content": plan_file.read_text(encoding="utf-8", errors="replace")})
+
+        # 兜底：产物为空绝不能标记完成（空结果会让前端结果区一片空白且无从排查）
+        if not files:
+            raise RuntimeError("生成未产出任何文件（config.json 与 handler.c 均缺失），请重试")
 
         # 评测（纯本地计算，始终真实执行；TED 计算量大，按内容指纹缓存）
         evaluation = None

@@ -205,9 +205,18 @@ class HandlerGenerator:
             code = self._generate_code(target_spec, plan, retrieved_chunks, model, temperature)
             logger.info("代码生成完成")
 
-            # 验证代码有效性
+            # 验证代码有效性：流式响应被截断（如代理掐断 SSE）时产物残缺，
+            # 原逻辑仅 warning 后带病交付（评测 0 函数才发现），改为自动重试一次，
+            # 仍不过则按失败返回错误结果，由编排层显式报错
             if not self._validate_code(code):
-                logger.warning("生成的代码可能不完整或格式异常")
+                logger.warning(f"生成代码未通过有效性检查（仅 {len(code)} 字符），自动重试一次")
+                code = self._generate_code(target_spec, plan, retrieved_chunks, model, temperature)
+            if not self._validate_code(code):
+                return self._create_error_result(
+                    target_name, str(source_kb_dir), top_k, model, temperature,
+                    f"阶段B失败: 生成代码未通过有效性检查（输出仅 {len(code)} 字符，"
+                    f"疑似流式响应被截断），请检查网络代理后重试"
+                )
 
         except Exception as e:
             logger.error(f"生成代码失败: {e}")

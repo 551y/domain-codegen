@@ -22,14 +22,18 @@ try:
     FAISS_AVAILABLE = True
 except ImportError:
     FAISS_AVAILABLE = False
-    logger.warning("FAISS 未安装，向量检索功能将不可用")
+    logger.warning("FAISS 未安装/不可用，向量检索将回退为 numpy 内积扫描（仅支持 load/search）")
 
 
 class VectorStore:
     """
     向量存储类
 
-    封装 FAISS 索引的创建、保存、加载和检索操作
+    封装 FAISS 索引的创建、保存、加载和检索操作。
+    FAISS 不可用（如 Windows 上 pip 版 faiss-cpu 原生 DLL 加载失败）时，
+    load/search 自动回退为 numpy 实现：直接加载随库交付的 embeddings.npy
+    + chunk_ids.json，归一化后做内积扫描（与 IndexFlatIP 余弦检索等价），
+    保证运行态检索不依赖原生扩展；构建态（create/add/save）仍需 FAISS。
     """
 
     def __init__(self, dimension: int, metric: str = "ip"):
@@ -40,15 +44,15 @@ class VectorStore:
             dimension: 向量维度
             metric: 距离度量方式，"ip" (内积/余弦相似度) 或 "l2" (欧氏距离)
         """
-        if not FAISS_AVAILABLE:
-            raise ImportError("FAISS 未安装，请执行: pip install faiss-cpu")
-
         self.dimension = dimension
         self.metric = metric
         self.index = None
         self.chunk_ids: List[str] = []  # 存储 chunk_id 列表，与索引位置对应
+        # numpy 回退后端的向量矩阵 (n, dimension)，仅 FAISS 不可用时由 load() 填充
+        self._vectors: Optional[np.ndarray] = None
 
-        logger.debug(f"初始化 VectorStore: dimension={dimension}, metric={metric}")
+        logger.debug(f"初始化 VectorStore: dimension={dimension}, metric={metric}, "
+                     f"backend={'faiss' if FAISS_AVAILABLE else 'numpy'}")
 
     def create_index(self, embeddings: Optional[np.ndarray] = None) -> None:
         """
@@ -125,12 +129,8 @@ class VectorStore:
         Returns:
             (indices, scores) 元组：
             - indices: 相似向量的索引列表
-            - scores: 相似度分数列表（IP: 越大越相似，L2: 越小越相似）
+            - scores: 相似度分数列表（越大越相似；L2 在 numpy 回退下以负距离表示）
         """
-        if self.index is None or self.index.ntotal == 0:
-            logger.warning("索引为空，无法检索")
-            return [], []
-
         # 准备查询向量
         if not isinstance(query_vector, np.ndarray):
             query_vector = np.array(query_vector, dtype=np.float32)
@@ -141,6 +141,32 @@ class VectorStore:
         # 确保是 2D 数组 (1, dimension)
         if query_vector.ndim == 1:
             query_vector = query_vector.reshape(1, -1)
+
+        # numpy 回退后端：内积扫描（IP 下与 FAISS 余弦检索等价）
+        if self.index is None:
+            if self._vectors is None or len(self._vectors) == 0:
+                logger.warning("索引为空，无法检索")
+                return [], []
+            q = query_vector[0]
+            if q.shape[0] != self._vectors.shape[1]:
+                logger.warning(f"查询向量维度 {q.shape[0]} 与索引维度 {self._vectors.shape[1]} 不一致")
+                return [], []
+            if self.metric == "ip":
+                norm = float(np.linalg.norm(q))
+                if norm > 0:
+                    q = q / norm
+                scores = self._vectors @ q
+            else:  # l2：负距离，越大越相似，与返回值的降序语义一致
+                scores = -np.sum((self._vectors - q) ** 2, axis=1)
+            k = min(top_k, len(scores))
+            # 先取前 k 候选再按分数降序排序
+            part = np.argpartition(-scores, k - 1)[:k]
+            order = part[np.argsort(-scores[part])]
+            return order.tolist(), [float(scores[i]) for i in order]
+
+        if self.index.ntotal == 0:
+            logger.warning("索引为空，无法检索")
+            return [], []
 
         # 归一化查询向量
         if self.metric == "ip":
@@ -212,13 +238,48 @@ class VectorStore:
         """
         从磁盘加载索引
 
+        FAISS 可用时加载 vector.index；不可用时回退为 numpy 后端——
+        直接加载随知识库交付的 embeddings.npy（与索引同批向量）做内积扫描。
+
         Args:
             output_dir: 索引所在目录
         """
+        output_dir = Path(output_dir)
+
+        if not FAISS_AVAILABLE:
+            embeddings_path = output_dir / "embeddings.npy"
+            if not embeddings_path.exists():
+                raise FileNotFoundError(
+                    f"FAISS 不可用且未找到回退向量文件: {embeddings_path}"
+                    "（知识库需随附 embeddings.npy 才能脱离 FAISS 检索）"
+                )
+            vectors = np.load(embeddings_path).astype(np.float32)
+            if vectors.ndim != 2:
+                raise ValueError(f"embeddings.npy 形状异常: {vectors.shape}")
+            # 防御性归一化（交付的向量一般已 L2 归一化，归一化幂等）
+            if self.metric == "ip":
+                norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+                norms[norms == 0] = 1.0
+                vectors = vectors / norms
+            self._vectors = vectors
+            self.dimension = vectors.shape[1]
+
+            # 加载 chunk_ids
+            chunk_ids_path = output_dir / "chunk_ids.json"
+            if chunk_ids_path.exists():
+                with open(chunk_ids_path, 'r', encoding='utf-8') as f:
+                    self.chunk_ids = json.load(f)
+            else:
+                raise FileNotFoundError(f"chunk_ids 文件不存在: {chunk_ids_path}")
+            if len(self.chunk_ids) != len(vectors):
+                raise ValueError(
+                    f"chunk_ids 数量({len(self.chunk_ids)})与向量数量({len(vectors)})不一致"
+                )
+            logger.info(f"向量存储已加载（numpy 回退后端）: {output_dir}, vectors={len(vectors)}")
+            return
+
         import tempfile
         import shutil
-
-        output_dir = Path(output_dir)
 
         # 加载 FAISS 索引（先复制到临时文件解决中文路径问题）
         index_path = output_dir / "vector.index"
@@ -266,6 +327,8 @@ class VectorStore:
     @property
     def vector_count(self) -> int:
         """返回索引中的向量数量"""
-        if self.index is None:
-            return 0
-        return self.index.ntotal
+        if self.index is not None:
+            return self.index.ntotal
+        if self._vectors is not None:
+            return len(self._vectors)
+        return 0

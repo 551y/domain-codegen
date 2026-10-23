@@ -84,7 +84,12 @@ interface TrackedTask {
   startedAt: number;
   state: TaskState;
   result?: GenerateResult;
+  /** 已完成任务的结果拉取连续失败次数（限次重试，超出按失败处理） */
+  resultFails?: number;
 }
+
+// 结果拉取连续失败上限（轮询 1.5s 一次，约 30s），超出按失败处理，避免永远停在「结果载入中」
+const RESULT_FETCH_MAX_FAILS = 20;
 
 function Stepper({
   kb,
@@ -273,18 +278,52 @@ export default function WorkbenchPage() {
     api.kbs().then((r) => setKbs(r.kbs)).catch(() => {});
   }, []);
 
-  // 单轮询循环：并行刷新所有未完成任务；完成的任务自动拉取结果缓存
+  // 单轮询循环：刷新未完成任务；已完成但结果未取到的任务继续限次重试拉取
   useEffect(() => {
     const timer = setInterval(async () => {
-      const pending = Object.values(tasksRef.current).filter((t) => isUnfinished(t.state.status));
+      const pending = Object.values(tasksRef.current).filter(
+        (t) => isUnfinished(t.state.status) || (t.state.status === "completed" && !t.result),
+      );
       for (const t of pending) {
         try {
           const s = await api.task(t.id);
+          if (!s.exists) {
+            // 后端重启后进程内任务丢失：明确标记失败，避免界面卡在中间态
+            setTasks((prev) =>
+              prev[t.id]
+                ? {
+                    ...prev,
+                    [t.id]: {
+                      ...prev[t.id],
+                      state: {
+                        ...prev[t.id].state, exists: false, status: "failed",
+                        message: "任务已丢失",
+                        error: "后端任务不存在（服务可能已重启，进程内任务状态已清空），请重新生成",
+                      },
+                    },
+                  }
+                : prev,
+            );
+            continue;
+          }
           if (s.status === "completed") {
             const r = await api.result(t.id).catch(() => null);
-            setTasks((prev) =>
-              prev[t.id] ? { ...prev, [t.id]: { ...prev[t.id], state: s, result: r ?? prev[t.id].result } } : prev,
-            );
+            setTasks((prev) => {
+              const cur = prev[t.id];
+              if (!cur) return prev;
+              if (r) return { ...prev, [t.id]: { ...cur, state: s, result: r, resultFails: 0 } };
+              const fails = (cur.resultFails ?? 0) + 1;
+              if (fails >= RESULT_FETCH_MAX_FAILS) {
+                return {
+                  ...prev,
+                  [t.id]: {
+                    ...cur,
+                    state: { ...s, status: "failed", error: "任务已完成但结果拉取连续失败（结果接口异常），请重新生成" },
+                  },
+                };
+              }
+              return { ...prev, [t.id]: { ...cur, state: s, resultFails: fails } };
+            });
           } else {
             setTasks((prev) =>
               prev[t.id] ? { ...prev, [t.id]: { ...prev[t.id], state: s } } : prev,
@@ -397,7 +436,6 @@ export default function WorkbenchPage() {
 
   const sortedTasks = Object.values(tasks).sort((a, b) => b.startedAt - a.startedAt);
   const focused = focusId ? tasks[focusId] : undefined;
-  const focusedRunning = focused && isUnfinished(focused.state.status);
   const focusedResult = focused?.result;
   // 步骤条第 3/4 步语义：生成 = 有任务在跑或正在查看结果（步骤条保留已完成步骤点亮）；
   // 结果 = 正在查看结果。回到首页（无在跑任务且未聚焦结果）时 3、4 均不亮。
@@ -650,32 +688,42 @@ export default function WorkbenchPage() {
             <div className="mt-5 rounded-xl border border-border bg-background p-4">
               <div className="mb-3 flex items-center gap-4">
                 {STAGES.map((s, i) => {
-                  const state = !focusedRunning
-                    ? focused.state.status === "completed"
+                  const st = focused.state.status;
+                  const state =
+                    st === "completed"
                       ? "done"
-                      : i < currentStage
-                        ? "done"
-                        : i === currentStage
-                          ? "active"
-                          : "todo"
-                    : i < currentStage
-                      ? "done"
-                      : i === currentStage
-                        ? "active"
-                        : "todo";
+                      : st === "failed"
+                        ? i < currentStage
+                          ? "done"
+                          : i === currentStage
+                            ? "failed"
+                            : "todo"
+                        : i < currentStage
+                          ? "done"
+                          : i === currentStage
+                            ? "active"
+                            : "todo";
                   return (
                     <div key={s} className="flex items-center gap-1.5">
                       {state === "done" ? (
                         <CheckCircle2 size={14} className="text-emerald-500" />
                       ) : state === "active" ? (
                         <Loader2 size={14} className="animate-spin text-primary" />
+                      ) : state === "failed" ? (
+                        <XCircle size={14} className="text-destructive" />
                       ) : (
                         <span className="h-3.5 w-3.5 rounded-full border border-border" />
                       )}
                       <span
                         className={cn(
                           "text-[12px]",
-                          state === "active" ? "font-medium text-primary" : state === "done" ? "text-emerald-600" : "text-muted-foreground/60",
+                          state === "active"
+                            ? "font-medium text-primary"
+                            : state === "done"
+                              ? "text-emerald-600"
+                              : state === "failed"
+                                ? "font-medium text-destructive"
+                                : "text-muted-foreground/60",
                         )}
                       >
                         {s}
@@ -734,6 +782,12 @@ export default function WorkbenchPage() {
           <div className="grid gap-4 lg:grid-cols-5">
             {/* 代码区 */}
             <div className="lg:col-span-3">
+              {focusedResult.files.length === 0 ? (
+                /* 产物为空不应到达这里（后端已兜底报错）；万一到达，给出可操作的空态而非一片空白 */
+                <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-6 text-[12.5px] leading-relaxed text-destructive">
+                  本次生成未产出任何文件（生成链路异常）。请收起结果后重新生成；若反复出现，请检查顶栏 LLM 设置与后端服务状态。
+                </div>
+              ) : (
               <div className="overflow-hidden rounded-xl border border-border bg-card shadow-soft-sm">
                 <div className="flex items-center gap-1 border-b border-border bg-muted/50 px-3 py-2">
                   {focusedResult.files.map((f, i) => (
@@ -755,6 +809,7 @@ export default function WorkbenchPage() {
                   <code>{focusedResult.files[Math.min(activeFile, focusedResult.files.length - 1)]?.content}</code>
                 </pre>
               </div>
+              )}
             </div>
 
             {/* 评测区 */}
