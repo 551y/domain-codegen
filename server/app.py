@@ -1028,9 +1028,11 @@ def _locate_torch_source(req: GenerateRequest, preset_dir: Path, preset_suffix: 
 
 
 def _onnx_runtime_available() -> bool:
-    """导出执行环境探测（find_spec 不真正 import，torch 不进入服务进程）"""
+    """导出执行环境探测（find_spec 不真正 import，torch 不进入服务进程）。
+    onnxscript 也要算：torch 2.9+ 的 torch.onnx 任意导出路径都会 import 它，缺失时
+    导出必然 ModuleNotFoundError——探测为不可用即可优雅降级为仅交付导出脚本。"""
     import importlib.util
-    return importlib.util.find_spec("torch") is not None and importlib.util.find_spec("onnx") is not None
+    return all(importlib.util.find_spec(m) is not None for m in ("torch", "onnx", "onnxscript"))
 
 
 # 推理冒烟测试脚本（子进程运行，坏模型崩溃不影响服务进程）

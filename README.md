@@ -59,7 +59,7 @@ Windows（原生 PowerShell）：`.\start.ps1` / `.\stop.ps1`，安装步骤见�
 conda create -n demo python=3.12 -y && conda activate demo
 pip install -e ./vendor/herta        # 引擎与依赖（fastapi/uvicorn/faiss/tree-sitter 等）
 pip install python-multipart         # 上传接口需要
-pip install torch onnx onnxruntime   # ONNX 入口现场导出 .onnx + 推理冒烟测试需要（CPU 版即可；缺省时回退为仅交付导出脚本）
+pip install torch onnx onnxscript onnxruntime   # ONNX 实导出 + 冒烟测试需要（CPU 版即可；onnxscript 是 torch.onnx 的硬依赖，缺省时回退为仅交付导出脚本）
 cd app && npm install --legacy-peer-deps && npm run build
 ```
 
@@ -72,7 +72,7 @@ conda create -n demo python=3.12 -y; conda activate demo
 conda install -c conda-forge faiss-cpu -y   # faiss-cpu 没有 Windows 的 pip 包，须走 conda-forge（先装它，后续 pip 会识别为已满足）
 pip install -e ./vendor/herta
 pip install python-multipart
-pip install torch onnx onnxruntime   # ONNX 入口现场导出 .onnx + 推理冒烟测试需要
+pip install torch onnx onnxscript onnxruntime   # ONNX 实导出 + 冒烟测试需要（onnxscript 为 torch.onnx 硬依赖）
 cd app; npm install --legacy-peer-deps; npm run build; cd ..
 .\start.ps1     # 若提示禁止运行脚本：powershell -ExecutionPolicy Bypass -File .\start.ps1
 .\stop.ps1
