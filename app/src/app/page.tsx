@@ -751,7 +751,8 @@ export default function WorkbenchPage() {
                   ))}
                 </div>
                 <pre className="code-scroll max-h-[560px] overflow-auto p-4 font-mono text-[11.5px] leading-relaxed">
-                  <code>{focusedResult.files[activeFile]?.content}</code>
+                  {/* 页签下标随结果文件数收敛，避免从多文件结果切到少文件结果时越界显示空白 */}
+                  <code>{focusedResult.files[Math.min(activeFile, focusedResult.files.length - 1)]?.content}</code>
                 </pre>
               </div>
             </div>
