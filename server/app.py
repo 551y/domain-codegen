@@ -1394,6 +1394,8 @@ def _run_operator(task_id: str, req: GenerateRequest):
             )
             sink("flush", "")
             gen_code = _clean_code(raw)
+            if not gen_code.strip():
+                raise RuntimeError("模型返回内容为空或仅含格式围栏，请重试或更换模型")
             _live_done(task_id, "live")
         else:
             raise RuntimeError("上传的自有文件需要配置 LLM API Key（顶栏齿轮设置）；预置样例可直接演示")
@@ -1625,6 +1627,8 @@ def _run_paddle(task_id: str, req: GenerateRequest):
             )
             sink("flush", "")
             gen_code = _clean_code(raw)
+            if not gen_code.strip():
+                raise RuntimeError("模型返回内容为空或仅含格式围栏，请重试或更换模型")
             _live_done(task_id, "live")
         else:
             raise RuntimeError("上传的自有文件需要配置 LLM API Key（顶栏齿轮设置）；预置样例可直接演示")

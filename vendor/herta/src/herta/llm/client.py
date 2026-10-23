@@ -167,6 +167,11 @@ class BigModelClient:
                     parts.append(delta)
                     _emit("delta", delta)
             content = "".join(parts)
+            if not content.strip():
+                # 流式聚合为空：通常是 SSE 流被网络代理/防火墙截断（chunk 全丢），
+                # 静默交付空代码会让前端结果区空白且难以排查，必须显式报错
+                raise RuntimeError("模型流式返回为空（0 个增量）——SSE 流可能被网络代理/防火墙截断；"
+                                   "请检查网络代理设置，或在顶栏设置中更换 Base URL/模型后重试")
             logger.debug(f"chat 调用成功，返回长度: {len(content)}")
             return content
         except Exception as e:
@@ -214,6 +219,11 @@ class BigModelClient:
                             parts.append(delta)
                             _emit("delta", delta)
             content = "".join(parts)
+            if not content.strip():
+                # 流式聚合为空：通常是 SSE 流被网络代理/防火墙截断（chunk 全丢），
+                # 静默交付空代码会让前端结果区空白且难以排查，必须显式报错
+                raise RuntimeError("模型流式返回为空（0 个增量）——SSE 流可能被网络代理/防火墙截断；"
+                                   "请检查网络代理设置，或在顶栏设置中更换 Base URL/模型后重试")
             logger.debug(f"chat 调用成功，返回长度: {len(content)}")
             return content
         except Exception as e:
