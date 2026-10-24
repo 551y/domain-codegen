@@ -3,9 +3,9 @@
 
 一个后端统一编排两套知识库的代码生成流水线：
   - 入口一（星务协议知识库）：协议文档 → 检索增强 → LLM 生成 config/handler → 本地评测
-  - 入口二（模型部署适配，ONNX 知识库与 ModelX Paddle 映射规则独立维护）：
+  - 入口二（模型部署适配，ONNX 知识库与 Paddle 映射规则独立维护）：
       PyTorch→ONNX：BM25 检索 → LLM 生成导出代码 → 子进程真实执行导出（产出可下载的单文件 .onnx）
-      PyTorch→Paddle：ModelX CMC AST/规则转换 → 迁移彻底性/结构评测 → Paddle 冒烟检查
+      PyTorch→Paddle：AST/规则转换 → 迁移彻底性/结构评测 → Paddle 冒烟检查
 
 引擎复用：herta（LLM 生成与评测）、opalign（样例模型）。本文件只做编排与演示适配。
 """
@@ -650,6 +650,10 @@ def _vision_samples(preset_dir: Path, preset_suffix: str) -> list:
             for entry in sorted(src_models.iterdir()):
                 name = entry.stem if entry.is_file() else entry.name
                 if name == "__init__" or name in seen:
+                    continue
+                # Paddle 只列出已配置并实测的模型：多文件包源码（convnext/efficientnet/
+                # mobilenet）暂不支持转换，不再给出必失败的入口；ONNX 侧 12 个全保留
+                if paddle_cases and name not in paddle_cases:
                     continue
                 seen.add(name)
                 item = {
@@ -1482,7 +1486,7 @@ def _run_operator(task_id: str, req: GenerateRequest):
 
 # ---------------------------------------------------------------------------
 # 入口二 · Paddle 目标：PyTorch → PaddlePaddle 跨框架转换
-# （转换使用 ModelX 自带映射规则；ONNX 知识检索只作参考展示）
+# （转换使用自带映射规则；ONNX 知识检索只作参考展示）
 # ---------------------------------------------------------------------------
 
 def _code_without_comments(src: str) -> str:
@@ -1546,11 +1550,11 @@ def _eval_paddle(
             checks["Paddle 运行时检查无异常"] = False
 
     if conversion is not None:
-        # ModelX 的 API 迁移统计是转换工具实际返回的计数，不把它伪装成
+        # 转换器的 API 迁移统计是工具实际返回的计数，不把它伪装成
         # 代码相似度；与 ONNX 的导出/校验检查一样，在界面上单独展示。
-        checks["ModelX 转换器产出代码"] = bool(gen_code.strip())
-        checks["ModelX API 全部转换"] = conversion.failed_api_count == 0
-        scores["ModelX API 转换成功率"] = conversion.api_success_rate
+        checks["转换器产出代码"] = bool(gen_code.strip())
+        checks["API 全部转换"] = conversion.failed_api_count == 0
+        scores["API 转换成功率"] = conversion.api_success_rate
     if companion_files:
         companion_syntax_ok = True
         for filename, content in companion_files.items():
@@ -1616,7 +1620,7 @@ def _eval_paddle(
     }
     if conversion is not None:
         evaluation["stats"] = {
-            "ModelX 转换器": conversion.converter,
+            "转换器": conversion.converter,
             "源文件": Path(conversion.source_file).name,
             "成功转换 API": conversion.success_api_count,
             "未支持 API": conversion.failed_api_count,
@@ -1666,7 +1670,7 @@ def _run_paddle(task_id: str, req: GenerateRequest):
         analysis = _analyze_source(source_text)
         leaf_ops = sorted({c.split(".")[-1] for c in analysis["calls"]})
         # 与 ONNX 目标共用同一数据集，仅用于工作台展示相关算子知识；
-        # ModelX CMC 本身使用内置 AST/规则映射，不读取 LLM 或该检索结果。
+        # 转换器本身使用内置 AST/规则映射，不读取 LLM 或该检索结果。
         query = f"{name} PyTorch Paddle 转换 算子映射 " + " ".join(leaf_ops[:12])
         retrieved = _onnx_retrieve(query, top_k=8)
         _task_intermediate(
@@ -1683,15 +1687,15 @@ def _run_paddle(task_id: str, req: GenerateRequest):
         modelx_fallback_reason: Optional[str] = None
         pre_generated = False
         modelx_dir = out_dir / "modelx"
-        _task_update(task_id, progress=45, stage=2, message="运行 ModelX CMC 源码级转换…")
-        # ModelX CMC 是确定性的源码级 AST/规则转换器，不依赖 LLM。
+        _task_update(task_id, progress=45, stage=2, message="运行源码级规则转换…")
+        # 该转换为确定性的源码级 AST/规则转换，不依赖 LLM。
         try:
             conversion = convert_pytorch_source(src, modelx_dir)
             gen_code = conversion.code
             extra_files = conversion.extra_files
             _task_intermediate(
                 task_id,
-                gen_mode="ModelX CMC 源码级转换（确定性）",
+                gen_mode="源码级规则转换（确定性）",
                 conversion_stats={
                     "success": conversion.success_api_count,
                     "failed": conversion.failed_api_count,
@@ -1700,12 +1704,12 @@ def _run_paddle(task_id: str, req: GenerateRequest):
             )
         except (ModuleNotFoundError, ImportError) as modelx_error:
             if req.mode == "sample" and preset_file:
-                # 预置样例保留离线回放兜底；在安装 ModelX 依赖的环境中，
-                # 同一个样例会优先展示真实 CMC 转换产物。
+                # 预置样例保留离线回放兜底；在安装转换依赖的环境中，
+                # 同一个样例会优先展示真实转换产物。
                 pre_generated = True
                 modelx_fallback_reason = str(modelx_error)
-                _task_update(task_id, progress=45, stage=2, message="ModelX 不可用，载入预生成 Paddle 转换产物…")
-                _task_intermediate(task_id, gen_mode="预生成回放（ModelX 依赖缺失时的离线兜底）")
+                _task_update(task_id, progress=45, stage=2, message="转换依赖不可用，载入预生成 Paddle 转换产物…")
+                _task_intermediate(task_id, gen_mode="预生成回放（转换依赖缺失时的离线兜底）")
                 gen_code = preset_file.read_text(encoding="utf-8", errors="replace")
                 companion_dir = PADDLE_PRESET_DIR / name
                 extra_files = {
@@ -1715,12 +1719,12 @@ def _run_paddle(task_id: str, req: GenerateRequest):
                 time.sleep(0.5)
             else:
                 raise RuntimeError(
-                    "ModelX CMC 转换失败：%s。请安装 vendor/modelx/requirements.txt。" % modelx_error
+                    "源码转换失败：%s。请按 README 安装 Paddle 转换依赖后重试。" % modelx_error
                 ) from modelx_error
 
         evaluation_steps = [
             {
-                "name": "ModelX CMC 源码转换",
+                "name": "源码级转换",
                 "status": ("failed" if conversion.failed_api_count else "passed") if conversion is not None else "skipped",
                 "detail": (
                     f"{conversion.success_api_count} 个 API 成功，{conversion.failed_api_count} 个未支持"
@@ -1733,7 +1737,7 @@ def _run_paddle(task_id: str, req: GenerateRequest):
         _task_intermediate(task_id, evaluation_steps=evaluation_steps)
         script_path = out_dir / f"{name}_to_paddle.py"
         # Execute the same multi-file artifact shown in the UI, preserving the
-        # relative imports emitted by ModelX. The smoke runner loads a package.
+        # relative imports emitted by the converter. The smoke runner loads a package.
         script_path.write_text(gen_code, encoding="utf-8")
         for relative_name, content in extra_files.items():
             companion = out_dir / relative_name
@@ -1774,7 +1778,7 @@ def _run_paddle(task_id: str, req: GenerateRequest):
         if extra_files:
             static_names.add("伴随 Python 模块语法合法")
         if conversion is not None:
-            static_names.add("ModelX 转换器产出代码")
+            static_names.add("转换器产出代码")
         static_checks = {k: v for k, v in evaluation.get("checks", {}).items() if k in static_names}
         static_ok = bool(static_checks) and all(static_checks.values())
         evaluation_steps[2] = {
@@ -1785,7 +1789,7 @@ def _run_paddle(task_id: str, req: GenerateRequest):
         _task_intermediate(task_id, evaluation_steps=evaluation_steps)
         if modelx_fallback_reason:
             evaluation["note"] = (
-                "ModelX CMC 依赖不可用，当前展示预生成 Paddle 产物；原因：%s。 %s"
+                "转换依赖不可用，当前展示预生成 Paddle 产物；原因：%s。 %s"
                 % (modelx_fallback_reason, evaluation.get("note", ""))
             ).strip()
         result_files = [{"name": f"{name}_paddle.py", "language": "python", "content": gen_code}]
@@ -1869,7 +1873,7 @@ def onnx_dataset():
 
 @app.get("/api/kb/paddle/dataset")
 def paddle_dataset():
-    """ModelX PyTorch→Paddle 映射规则数据集可视化载荷。"""
+    """PyTorch→Paddle 映射规则数据集可视化载荷。"""
     if not PADDLE_DATASET.exists():
         raise HTTPException(status_code=404, detail="Paddle 映射规则载荷不存在（先运行 server/tools/build_paddle_dataset.py）")
     return json.loads(PADDLE_DATASET.read_text(encoding="utf-8"))

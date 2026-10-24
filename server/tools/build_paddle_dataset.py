@@ -1,14 +1,14 @@
-"""Build the independent ModelX PyTorch→Paddle rule dataset view.
+"""Build the independent PyTorch→Paddle rule dataset view.
 
 This payload is intentionally separate from ``build_onnx_dataset.py``.  ONNX
 records come from the ONNX knowledge dataset; Paddle records come from the
-ModelX CMC mapping table and describe the source API, target API, matcher and
+mapping table and describe the source API, target API, matcher and
 parameter/semantic rewrite used by the source converter.
 
 Usage::
 
     python server/tools/build_paddle_dataset.py
-    python server/tools/build_paddle_dataset.py <ModelX CMC directory>
+    python server/tools/build_paddle_dataset.py <converter directory>
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def category_for(entry: dict) -> tuple[str, str]:
 
 def main() -> None:
     if not MAPPING.exists():
-        raise SystemExit(f"找不到 ModelX 映射表：{MAPPING}")
+        raise SystemExit(f"找不到映射表：{MAPPING}")
 
     mapping = json.loads(MAPPING.read_text(encoding="utf-8"))
     records = []
@@ -71,14 +71,14 @@ def main() -> None:
             "title": source_api,
             "category": category,
             "category_label": category_label,
-            "source": "ModelX CMC / pytorch_to_paddlepaddle.json",
+            "source": "pytorch_to_paddlepaddle.json",
             "text": text,
             "source_api": source_api,
             "target_api": target_api or "",
             "matcher": entry.get("Matcher", ""),
             "classification": entry.get("Classification"),
             "params_change": params_change,
-            "framework_version": "ModelX CMC",
+            "framework_version": "AST/映射规则",
             "verification_status": "mapping rule",
         })
 
@@ -99,7 +99,7 @@ def main() -> None:
             files.append({
                 "path": str(path.relative_to(CMC_DIR)).replace("\\", "/"),
                 "lines": raw_lines(path),
-                "note": "ModelX CMC 转换规则/实现文件",
+                "note": "转换规则/实现文件",
             })
 
     payload = {

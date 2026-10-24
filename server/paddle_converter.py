@@ -1,7 +1,7 @@
-"""ModelX CMC integration for the PyTorch to Paddle demo.
+"""Paddle conversion integration for the PyTorch to Paddle demo.
 
-The original ModelX project is vendored under ``vendor/modelx/CMC``.  This
-module keeps the web server independent from ModelX's conversion dependencies:
+The original converter project is vendored under ``vendor/modelx/CMC``.  This
+module keeps the web server independent from the converter's dependencies:
 the converter is imported only when a Paddle conversion is requested, and the
 caller receives a useful error when its dependencies are not installed.  The
 conversion itself is deterministic and does not call an LLM.
@@ -29,7 +29,7 @@ _MODELX_LOCK = threading.Lock()
 
 @dataclass
 class ConversionResult:
-    """A serialisable summary of one ModelX conversion."""
+    """A serialisable summary of one conversion."""
 
     code: str
     source_file: str
@@ -38,7 +38,7 @@ class ConversionResult:
     unsupported: dict[str, int] = field(default_factory=dict)
     extra_files: dict[str, str] = field(default_factory=dict)
     compatibility_fixes: list[str] = field(default_factory=list)
-    converter: str = "ModelX CMC"
+    converter: str = "AST/映射规则"
 
     @property
     def api_total(self) -> int:
@@ -51,7 +51,7 @@ class ConversionResult:
 
 @contextlib.contextmanager
 def _modelx_import_path() -> Iterator[None]:
-    """Make the vendored ModelX package importable for the duration of a call."""
+    """Make the vendored converter package importable for the duration of a call."""
 
     root = str(MODELX_ROOT)
     inserted = root not in sys.path
@@ -107,25 +107,45 @@ def _normalize_modelx_code(content: str) -> str:
     return content.replace(marker, helper + marker, 1)
 
 
+def _hoist_future_imports(content: str) -> str:
+    """Move ``from __future__`` imports ahead of every other statement.
+
+    Underlying-library companions are spliced from sources extracted out of
+    the installed Paddle package.  Paddle 3.x sources carry ``from __future__
+    import annotations`` which the converter emits after its own ``import paddle``
+    line; that ordering is a compile-time SyntaxError on real import (Paddle
+    2.6.0 sources had no future import, which is why older environments were
+    unaffected).
+    """
+
+    lines = content.splitlines()
+    future = [ln.strip() for ln in lines if ln.strip().startswith("from __future__ import")]
+    if not future:
+        return content
+    unique_future = list(dict.fromkeys(future))
+    rest = [ln for ln in lines if not ln.strip().startswith("from __future__ import")]
+    return "\n".join(unique_future + rest).rstrip() + "\n"
+
+
 def paddle_demo_cases() -> dict[str, dict]:
     """Explicit constructors and input contracts for the bundled demo models."""
     return json.loads(DEMO_CASES_PATH.read_text(encoding="utf-8"))
 
 
 def convert_pytorch_source(source: Path, output_dir: Path) -> ConversionResult:
-    """Run ModelX's AST converter and return its generated Python source.
+    """Run the vendored AST converter and return its generated Python source.
 
-    ModelX's public converter accepts a source file.  For a model package we
+    The vendored public converter accepts a source file.  For a model package we
     convert the primary module; imports and companion modules remain available
     in the original source tree for users who want to continue the conversion.
-    ``output_dir`` is task-scoped and may safely be recreated by ModelX.
+    ``output_dir`` is task-scoped and may safely be recreated by the converter.
     """
 
     source_file = _primary_source(source).resolve()
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # ModelX keeps a process-level CodeFileGenerator singleton.  Serialising
+    # The converter keeps a process-level CodeFileGenerator singleton.  Serialising
     # calls and resetting it makes repeated web tasks independent while
     # retaining the original converter implementation.
     with _MODELX_LOCK, _modelx_import_path():
@@ -148,10 +168,10 @@ def convert_pytorch_source(source: Path, output_dir: Path) -> ConversionResult:
             )
             success, failed = converter.run()
         finally:
-            # ModelX's CLI disables process-wide logging; restore it for the
+            # The converter CLI disables process-wide logging; restore it for the
             # web server after every conversion, including failed conversions.
             logging.disable(old_log_disable)
-            # CMC appends its task output directory while resolving helpers.
+            # The converter appends its task output directory while resolving helpers.
             # Remove only this call's additions, not other threads' paths.
             while sys.path.count(output_path) > old_output_path_count:
                 sys.path.remove(output_path)
@@ -161,18 +181,31 @@ def convert_pytorch_source(source: Path, output_dir: Path) -> ConversionResult:
         candidates = sorted(output_dir.rglob("*.py"), key=lambda p: p.stat().st_mtime)
         candidates = [p for p in candidates if p.name != "codeGenerationInfo.py"]
         if not candidates:
-            raise RuntimeError("ModelX did not produce a converted Python file")
+            raise RuntimeError("Converter did not produce a converted Python file")
         generated = candidates[-1]
 
     raw_code = generated.read_text(encoding="utf-8", errors="replace")
     code = _normalize_modelx_code(raw_code)
-    extra_files = {
-        p.relative_to(output_dir).as_posix(): p.read_text(encoding="utf-8", errors="replace")
-        for p in sorted(output_dir.rglob("*.py"))
-        if p != generated and p.name != "codeGenerationInfo.py" and "__pycache__" not in p.parts
-    }
-    # Keep the on-disk artifact identical to the version displayed/downloaded.
+    # Keep every on-disk artifact identical to the version displayed/downloaded.
     generated.write_text(code, encoding="utf-8")
+    extra_files: dict[str, str] = {}
+    hoisted_companions: list[str] = []
+    for p in sorted(output_dir.rglob("*.py")):
+        if p == generated or p.name == "codeGenerationInfo.py" or "__pycache__" in p.parts:
+            continue
+        raw_companion = p.read_text(encoding="utf-8", errors="replace")
+        companion = _hoist_future_imports(raw_companion)
+        if companion != raw_companion:
+            hoisted_companions.append(p.name)
+            p.write_text(companion, encoding="utf-8")
+        extra_files[p.relative_to(output_dir).as_posix()] = companion
+    compatibility_fixes: list[str] = []
+    if raw_code != code:
+        compatibility_fixes.append("补齐仓库裁剪源码缺失的 eager_outputs 方法")
+    if hoisted_companions:
+        compatibility_fixes.append(
+            "修正伴随模块 __future__ 导入位置（Paddle 3.x 抽取源码兼容）：" + "、".join(hoisted_companions)
+        )
     return ConversionResult(
         code=code,
         source_file=str(source_file),
@@ -180,7 +213,7 @@ def convert_pytorch_source(source: Path, output_dir: Path) -> ConversionResult:
         failed_api_count=int(failed or 0),
         unsupported={str(k): int(v) for k, v in getattr(converter, "unsupport_map", {}).items()},
         extra_files=extra_files,
-        compatibility_fixes=["补齐仓库裁剪源码缺失的 eager_outputs 方法"] if raw_code != code else [],
+        compatibility_fixes=compatibility_fixes,
     )
 
 

@@ -259,9 +259,9 @@ const PADDLE_PALETTE = ["#5487C5", "#CD9251", "#8E72BE", "#C46D87", "#808590"];
 
 function PaddleDatasetView({ data }: { data: PaddleDataset }) {
   const cfg: DatasetVizConfig = {
-    headerNote: "数据集可视化 · ModelX PyTorch→Paddle 映射规则",
+    headerNote: "数据集可视化 · PyTorch→Paddle 映射规则",
     primary: {
-      total: data.total, label: "条 · ModelX 映射规则",
+      total: data.total, label: "条 · 映射规则",
       sub: `直接映射 ${fmtNum(data.composition.direct)} · 参数改写 ${fmtNum(data.composition.parameter_rewrites)} · 语义转换 ${fmtNum(data.composition.semantic_rewrites)}`,
     },
     secondary: {
@@ -365,7 +365,7 @@ export default function KnowledgePage() {
         >
           <Satellite size={14} className="text-primary" />
           星务协议知识库
-          <span className="font-mono text-[10px] text-muted-foreground">{chunkTotal} 知识块</span>
+          <span className="font-mono text-[10px] text-muted-foreground">{protoDs?.baseline.total ?? 0} 条数据</span>
         </button>
         <button
           onClick={() => setTab("operator")}

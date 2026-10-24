@@ -2,7 +2,7 @@
   "verified_at": "2026-10-23T21:44:11.627027+00:00",
   "python": "3.9.19",
   "paddle": "2.6.0",
-  "scope": "Real ModelX conversion + main/helper syntax + CPU dummy forward; no numerical equivalence claim",
+  "scope": "Real conversion + main/helper syntax + CPU dummy forward; no numerical equivalence claim",
   "passed": 9,
   "total": 9,
   "cases": [
@@ -14,7 +14,7 @@
       "elapsed_s": 6.431,
       "pre_generated": false,
       "stats": {
-        "ModelX 转换器": "ModelX CMC",
+        "转换器": "AST/映射规则",
         "源文件": "alexnet.py",
         "成功转换 API": 29,
         "未支持 API": 0,
@@ -30,13 +30,13 @@
         "Paddle 模块导入成功": true,
         "Paddle 模型构造成功": true,
         "Paddle dummy 前向成功": true,
-        "ModelX 转换器产出代码": true,
-        "ModelX API 全部转换": true,
+        "转换器产出代码": true,
+        "API 全部转换": true,
         "输出形状符合样例约定": true,
         "输出不含 NaN/Inf": true
       },
       "scores": {
-        "ModelX API 转换成功率": 100.0,
+        "API 转换成功率": 100.0,
         "类结构对齐": 100.0,
         "层数量对齐": 100.0,
         "forward 调用对齐": 100.0
@@ -88,7 +88,7 @@
       "elapsed_s": 2.595,
       "pre_generated": false,
       "stats": {
-        "ModelX 转换器": "ModelX CMC",
+        "转换器": "AST/映射规则",
         "源文件": "squeezenet.py",
         "成功转换 API": 39,
         "未支持 API": 0,
@@ -104,13 +104,13 @@
         "Paddle 模块导入成功": true,
         "Paddle 模型构造成功": true,
         "Paddle dummy 前向成功": true,
-        "ModelX 转换器产出代码": true,
-        "ModelX API 全部转换": true,
+        "转换器产出代码": true,
+        "API 全部转换": true,
         "输出形状符合样例约定": true,
         "输出不含 NaN/Inf": true
       },
       "scores": {
-        "ModelX API 转换成功率": 100.0,
+        "API 转换成功率": 100.0,
         "类结构对齐": 100.0,
         "层数量对齐": 100.0,
         "forward 调用对齐": 100.0
@@ -162,7 +162,7 @@
       "elapsed_s": 10.836,
       "pre_generated": false,
       "stats": {
-        "ModelX 转换器": "ModelX CMC",
+        "转换器": "AST/映射规则",
         "源文件": "vgg.py",
         "成功转换 API": 34,
         "未支持 API": 0,
@@ -178,13 +178,13 @@
         "Paddle 模块导入成功": true,
         "Paddle 模型构造成功": true,
         "Paddle dummy 前向成功": true,
-        "ModelX 转换器产出代码": true,
-        "ModelX API 全部转换": true,
+        "转换器产出代码": true,
+        "API 全部转换": true,
         "输出形状符合样例约定": true,
         "输出不含 NaN/Inf": true
       },
       "scores": {
-        "ModelX API 转换成功率": 100.0,
+        "API 转换成功率": 100.0,
         "类结构对齐": 100.0,
         "层数量对齐": 100.0,
         "forward 调用对齐": 100.0
@@ -236,7 +236,7 @@
       "elapsed_s": 3.192,
       "pre_generated": false,
       "stats": {
-        "ModelX 转换器": "ModelX CMC",
+        "转换器": "AST/映射规则",
         "源文件": "resnet.py",
         "成功转换 API": 46,
         "未支持 API": 0,
@@ -252,13 +252,13 @@
         "Paddle 模块导入成功": true,
         "Paddle 模型构造成功": true,
         "Paddle dummy 前向成功": true,
-        "ModelX 转换器产出代码": true,
-        "ModelX API 全部转换": true,
+        "转换器产出代码": true,
+        "API 全部转换": true,
         "输出形状符合样例约定": true,
         "输出不含 NaN/Inf": true
       },
       "scores": {
-        "ModelX API 转换成功率": 100.0,
+        "API 转换成功率": 100.0,
         "类结构对齐": 100.0,
         "层数量对齐": 100.0,
         "forward 调用对齐": 100.0
@@ -310,7 +310,7 @@
       "elapsed_s": 2.911,
       "pre_generated": false,
       "stats": {
-        "ModelX 转换器": "ModelX CMC",
+        "转换器": "AST/映射规则",
         "源文件": "mnasnet.py",
         "成功转换 API": 53,
         "未支持 API": 0,
@@ -326,13 +326,13 @@
         "Paddle 模块导入成功": true,
         "Paddle 模型构造成功": true,
         "Paddle dummy 前向成功": true,
-        "ModelX 转换器产出代码": true,
-        "ModelX API 全部转换": true,
+        "转换器产出代码": true,
+        "API 全部转换": true,
         "输出形状符合样例约定": true,
         "输出不含 NaN/Inf": true
       },
       "scores": {
-        "ModelX API 转换成功率": 100.0,
+        "API 转换成功率": 100.0,
         "类结构对齐": 100.0,
         "层数量对齐": 90.9,
         "forward 调用对齐": 100.0
@@ -384,7 +384,7 @@
       "elapsed_s": 2.066,
       "pre_generated": false,
       "stats": {
-        "ModelX 转换器": "ModelX CMC",
+        "转换器": "AST/映射规则",
         "源文件": "shufflenetv2.py",
         "成功转换 API": 51,
         "未支持 API": 0,
@@ -400,13 +400,13 @@
         "Paddle 模块导入成功": true,
         "Paddle 模型构造成功": true,
         "Paddle dummy 前向成功": true,
-        "ModelX 转换器产出代码": true,
-        "ModelX API 全部转换": true,
+        "转换器产出代码": true,
+        "API 全部转换": true,
         "输出形状符合样例约定": true,
         "输出不含 NaN/Inf": true
       },
       "scores": {
-        "ModelX API 转换成功率": 100.0,
+        "API 转换成功率": 100.0,
         "类结构对齐": 100.0,
         "层数量对齐": 100.0,
         "forward 调用对齐": 100.0
@@ -458,7 +458,7 @@
       "elapsed_s": 2.966,
       "pre_generated": false,
       "stats": {
-        "ModelX 转换器": "ModelX CMC",
+        "转换器": "AST/映射规则",
         "源文件": "densenet.py",
         "成功转换 API": 53,
         "未支持 API": 0,
@@ -474,14 +474,14 @@
         "Paddle 模块导入成功": true,
         "Paddle 模型构造成功": true,
         "Paddle dummy 前向成功": true,
-        "ModelX 转换器产出代码": true,
-        "ModelX API 全部转换": true,
+        "转换器产出代码": true,
+        "API 全部转换": true,
         "伴随 Python 模块语法合法": true,
         "输出形状符合样例约定": true,
         "输出不含 NaN/Inf": true
       },
       "scores": {
-        "ModelX API 转换成功率": 100.0,
+        "API 转换成功率": 100.0,
         "类结构对齐": 100.0,
         "层数量对齐": 88.2,
         "forward 调用对齐": 100.0
@@ -545,7 +545,7 @@
       "elapsed_s": 4.83,
       "pre_generated": false,
       "stats": {
-        "ModelX 转换器": "ModelX CMC",
+        "转换器": "AST/映射规则",
         "源文件": "inception.py",
         "成功转换 API": 87,
         "未支持 API": 0,
@@ -561,14 +561,14 @@
         "Paddle 模块导入成功": true,
         "Paddle 模型构造成功": true,
         "Paddle dummy 前向成功": true,
-        "ModelX 转换器产出代码": true,
-        "ModelX API 全部转换": true,
+        "转换器产出代码": true,
+        "API 全部转换": true,
         "伴随 Python 模块语法合法": true,
         "输出形状符合样例约定": true,
         "输出不含 NaN/Inf": true
       },
       "scores": {
-        "ModelX API 转换成功率": 100.0,
+        "API 转换成功率": 100.0,
         "类结构对齐": 100.0,
         "层数量对齐": 100.0,
         "forward 调用对齐": 100.0
@@ -634,7 +634,7 @@
       "elapsed_s": 3.239,
       "pre_generated": false,
       "stats": {
-        "ModelX 转换器": "ModelX CMC",
+        "转换器": "AST/映射规则",
         "源文件": "googlenet.py",
         "成功转换 API": 63,
         "未支持 API": 0,
@@ -650,14 +650,14 @@
         "Paddle 模块导入成功": true,
         "Paddle 模型构造成功": true,
         "Paddle dummy 前向成功": true,
-        "ModelX 转换器产出代码": true,
-        "ModelX API 全部转换": true,
+        "转换器产出代码": true,
+        "API 全部转换": true,
         "伴随 Python 模块语法合法": true,
         "输出形状符合样例约定": true,
         "输出不含 NaN/Inf": true
       },
       "scores": {
-        "ModelX API 转换成功率": 100.0,
+        "API 转换成功率": 100.0,
         "类结构对齐": 100.0,
         "层数量对齐": 100.0,
         "forward 调用对齐": 100.0

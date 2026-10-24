@@ -3397,10 +3397,7 @@
       },
       "torch.nn.functional.interpolate": {
             "Matcher": "DirectMatcher",
-            "Classification": 0,
-            "default_kwargs": {
-                  "data_format": "'NCW'"
-            }
+            "Classification": 0
       },
       "torch.floor_": {
             "Matcher": "DirectMatcher",

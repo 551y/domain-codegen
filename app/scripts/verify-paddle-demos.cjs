@@ -126,8 +126,8 @@ async function main() {
       await cdp.click(helper);
       await cdp.wait(`document.querySelector('pre code')?.textContent.includes(${JSON.stringify(helper.includes("Kaiming") ? "class Modified_KaimingNormal" : "class Modified_TruncatedNormal")})`);
       const text = await cdp.evaluate("document.body.innerText");
-      for (const expected of ["Paddle 评估过程", "ModelX CMC 源码转换", "Paddle 导入与 dummy 前向",
-        "语法/迁移/结构静态评测", "ModelX 底层 Python 库改写", "伴随 Python 模块语法合法",
+      for (const expected of ["Paddle 评估过程", "源码级转换", "Paddle 导入与 dummy 前向",
+        "语法/迁移/结构静态评测", "底层 Python 库改写", "伴随 Python 模块语法合法",
         "Paddle 模型构造成功", "Paddle dummy 前向成功"]) {
         if (!text.includes(expected)) throw new Error(`Missing UI label ${expected}`);
       }
@@ -148,7 +148,7 @@ async function main() {
     await cdp.wait("[...document.querySelectorAll('button')].some(b => b.innerText.includes('Paddle 转换规则') && b.innerText.includes('541'))");
     await cdp.click("Paddle 转换规则");
     await cdp.wait("document.querySelector('input')?.placeholder.includes('Paddle') && document.querySelector('svg[aria-label^=\"全部 \"]')?.querySelectorAll('circle').length === 541");
-    await cdp.fill("input", "no_such_modelx_rule_20261024");
+    await cdp.fill("input", "no_such_paddle_rule_20261024");
     await cdp.wait("document.body.innerText.includes('无匹配记录')");
     const emptyView = await cdp.evaluate(`(() => {
       const svg = document.querySelector('svg[aria-label^="全部 "]');

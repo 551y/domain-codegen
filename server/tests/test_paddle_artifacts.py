@@ -1,6 +1,6 @@
-"""Regression checks for ModelX multi-file artifact delivery and failure reporting.
+"""Regression checks for multi-file artifact delivery and failure reporting.
 
-Run with a Paddle/CMC environment:
+Run with a Paddle environment:
     python -m unittest discover -s server/tests -p test_paddle_artifacts.py -v
 """
 
@@ -19,7 +19,7 @@ from server.paddle_converter import (
 
 class PaddleArtifactChecks(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="modelx-artifact-check-")
+        self.temp = tempfile.TemporaryDirectory(prefix="paddle-artifact-check-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         gen_patch = patch.object(app, "GEN_DIR", self.root / "generated")
@@ -107,7 +107,7 @@ class PaddleArtifactChecks(unittest.TestCase):
         task = self.fake_task({"attempted": False, "skip_reason": "Paddle not installed"},
                               failed_api_count=1)
         self.assertEqual(task["intermediate"]["evaluation_steps"][0]["status"], "failed")
-        self.assertFalse(task["result"]["evaluation"]["checks"]["ModelX API 全部转换"])
+        self.assertFalse(task["result"]["evaluation"]["checks"]["API 全部转换"])
 
     def test_unavailable_runtime_is_explicitly_skipped(self):
         task = self.fake_task({"attempted": False, "available": False,
@@ -118,7 +118,7 @@ class PaddleArtifactChecks(unittest.TestCase):
 
     def test_conversion_does_not_leak_task_import_paths_or_disable_logging(self):
         # Paddle adds its own native-library path on first import; that is not
-        # a ModelX task leak and must remain available to its runtime.
+        # a converter task leak and must remain available to its runtime.
         import paddle  # noqa: F401
         before_paths = list(sys.path)
         before_logging = logging.root.manager.disable

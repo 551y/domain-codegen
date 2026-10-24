@@ -50,7 +50,7 @@ const KB_META: Record<string, { icon: typeof Satellite; title: string; subtitle:
     icon: Plane,
     title: "无人机模型部署适配",
     subtitle: "PyTorch → ONNX / PaddlePaddle",
-    desc: "上传 PyTorch 模型源码（.py），ONNX 目标检索模型部署适配知识库并真实执行导出，产出可下载的 .onnx 与配套 C++ 推理源码；PaddlePaddle 目标调用内置 ModelX CMC 做确定性的源码级转换，并执行对应评测。",
+    desc: "上传 PyTorch 模型源码（.py），ONNX 目标检索模型部署适配知识库并真实执行导出，产出可下载的 .onnx 与配套 C++ 推理源码；PaddlePaddle 目标进行确定性的源码级规则转换（AST + 映射规则，不依赖 LLM），并执行对应评测。",
   },
 };
 
@@ -60,7 +60,7 @@ const KB_CHIP: Record<string, string> = { protocol: "协议", operator: "ONNX", 
 // 模型入口的目标框架选项（值即后端流水线 id；两个目标检索同一套模型部署适配知识库）
 const TARGET_META: Record<"operator" | "paddle", { icon: typeof Satellite; title: string; sub: string }> = {
   operator: { icon: Plane, title: "PyTorch → ONNX", sub: "部署导出 · 产出 .onnx + C++ 推理源码" },
-  paddle: { icon: ArrowLeftRight, title: "PyTorch → PaddlePaddle", sub: "ModelX CMC 源码级转换 · 产出 Paddle 模型源码" },
+  paddle: { icon: ArrowLeftRight, title: "PyTorch → PaddlePaddle", sub: "源码级规则转换 · 产出 Paddle 模型源码" },
 };
 
 const STAGES = ["解析输入", "检索知识库", "生成目标代码", "评测结果"];
@@ -90,6 +90,11 @@ interface TrackedTask {
 
 // 结果拉取连续失败上限（轮询 1.5s 一次，约 30s），超出按失败处理，避免永远停在「结果载入中」
 const RESULT_FETCH_MAX_FAILS = 20;
+
+// 工作台任务跨页面保持：任务条/焦点/结果持久化到 localStorage，切到知识库页或刷新后恢复；
+// 恢复回来的未完成任务由轮询循环自动续跑，完成但结果缺失的走既有限次重试拉取
+const TASKS_STORAGE_KEY = "workbench_tasks_v1";
+const TASKS_STORAGE_CAP = 10;
 
 function Stepper({
   kb,
@@ -250,7 +255,7 @@ function IntermediateView({ data }: { data: TaskIntermediate }) {
 
       {data.conversion_stats && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10.5px] text-muted-foreground">
-          <span>ModelX CMC 转换统计</span>
+          <span>转换统计</span>
           <span>成功 API：<span className="font-bold text-foreground">{data.conversion_stats.success}</span></span>
           <span>未支持：<span className="font-bold text-foreground">{data.conversion_stats.failed}</span></span>
           <span>成功率：<span className="font-bold text-primary">{data.conversion_stats.rate}%</span></span>
@@ -313,10 +318,40 @@ export default function WorkbenchPage() {
   const [showHits, setShowHits] = useState(false);
   const [showFuncs, setShowFuncs] = useState(false);
   const tasksRef = useRef<Record<string, TrackedTask>>({});
+  // 恢复完成前禁止写档，避免挂载当拍把空初始态写回覆盖存档
+  const [restored, setRestored] = useState(false);
 
   useEffect(() => {
     tasksRef.current = tasks;
   }, [tasks]);
+
+  // 恢复上次会话留下的任务条（仅客户端执行一次）
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(TASKS_STORAGE_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw) as { tasks?: Record<string, TrackedTask>; focusId?: string | null };
+        const restoredTasks = saved.tasks ?? {};
+        setTasks(restoredTasks);
+        setFocusId(saved.focusId && restoredTasks[saved.focusId] ? saved.focusId : (Object.keys(restoredTasks)[0] ?? null));
+      }
+    } catch { /* 存档损坏按全新会话处理 */ }
+    setRestored(true);
+  }, []);
+
+  // 任务/焦点变化即持久化（只留最近 TASKS_STORAGE_CAP 条，防膨胀防配额溢出）
+  useEffect(() => {
+    if (!restored) return;
+    try {
+      const kept = Object.values(tasks)
+        .sort((a, b) => b.startedAt - a.startedAt)
+        .slice(0, TASKS_STORAGE_CAP);
+      window.localStorage.setItem(
+        TASKS_STORAGE_KEY,
+        JSON.stringify({ tasks: Object.fromEntries(kept.map((t) => [t.id, t])), focusId }),
+      );
+    } catch { /* 配额满等非关键失败忽略 */ }
+  }, [tasks, focusId, restored]);
 
   useEffect(() => {
     api.kbs().then((r) => setKbs(r.kbs)).catch(() => {});
@@ -937,7 +972,7 @@ export default function WorkbenchPage() {
                     <div className="mt-2 space-y-0.5 border-t border-border/60 pt-2 font-mono text-[10px] text-muted-foreground">
                       <div className="flex items-center justify-between">
                         <span>转换器</span>
-                        <span className="font-bold text-foreground">{focusedResult.evaluation.stats["ModelX 转换器"] ?? "ModelX CMC"}</span>
+                        <span className="font-bold text-foreground">{focusedResult.evaluation.stats["转换器"] ?? "AST/映射规则"}</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span>成功转换 API</span>
@@ -969,7 +1004,7 @@ export default function WorkbenchPage() {
                   )}
                   {(focusedResult.evaluation?.library_modifications?.length ?? 0) > 0 && (
                     <div className="mt-2 border-t border-border/60 pt-2 text-[11px]">
-                      <div className="mb-1 font-medium text-indigo-600">ModelX 底层 Python 库改写</div>
+                      <div className="mb-1 font-medium text-indigo-600">底层 Python 库改写</div>
                       {focusedResult.evaluation!.library_modifications!.map((change) => (
                         <button key={change.file} className="block break-all py-0.5 text-left font-mono text-[10px] text-primary hover:underline"
                           onClick={() => { const i = focusedResult.files.findIndex((f) => f.name === change.file); if (i >= 0) setActiveFile(i); }}>
@@ -1191,7 +1226,7 @@ export default function WorkbenchPage() {
                         </div>
                         {focusedResult.evaluation.unsupported_apis && Object.keys(focusedResult.evaluation.unsupported_apis).length > 0 && (
                           <div className="mt-2 rounded-lg bg-amber-500/5 px-2.5 py-2 font-mono text-[10px] text-muted-foreground">
-                            <span>ModelX 未支持 API：</span>
+                            <span>未支持 API：</span>
                             {Object.entries(focusedResult.evaluation.unsupported_apis).map(([name, count]) => (
                               <span key={name} className="ml-1.5 inline-block rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-700">
                                 {name} ×{count}
@@ -1218,7 +1253,7 @@ export default function WorkbenchPage() {
                           onClick={() => setShowHits((v) => !v)}
                           className="flex items-center gap-1 text-[11.5px] font-medium text-primary"
                         >
-                          {focusedResult.kb === "paddle" ? "参考知识（不参与 ModelX 转换）" : "检索注入的知识"}（{focusedResult.evaluation.retrieved.length}）
+                          {focusedResult.kb === "paddle" ? "参考知识（不参与转换）" : "检索注入的知识"}（{focusedResult.evaluation.retrieved.length}）
                           {showHits ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                         </button>
                         {showHits && (

@@ -2,7 +2,7 @@
 
 Current regression evidence:
 
-- `paddle-demo-validation.json`: all nine configured models, real ModelX
+- `paddle-demo-validation.json`: all nine configured models, real
   conversion (`pre_generated=false`), generated-file syntax checks, CPU dummy
   forwards, finite outputs, expected shapes and source/artifact fingerprints.
 - `paddle-browser-validation.json`: real browser conversions for DenseNet-121

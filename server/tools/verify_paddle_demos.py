@@ -4,7 +4,7 @@
     python server/tools/verify_paddle_demos.py --models densenet inception
     python server/tools/verify_paddle_demos.py --build-presets
 
-Success requires real ModelX conversion (no replay), syntax-valid main/helper
+Success requires real conversion (no replay), syntax-valid main/helper
 modules, no failed automatic checks, and an actual Paddle forward of the
 configured top-level model with finite output of the expected shape. This is
 an executability regression check, not a dataset accuracy measurement.
@@ -114,7 +114,7 @@ def main() -> None:
         "verified_at": datetime.now(timezone.utc).isoformat(),
         "python": platform.python_version(),
         "paddle": paddle_version,
-        "scope": "Real ModelX conversion + main/helper syntax + CPU dummy forward; no numerical equivalence claim",
+        "scope": "Real conversion + main/helper syntax + CPU dummy forward; no numerical equivalence claim",
         "passed": sum(row["passed"] for row in rows), "total": len(rows), "cases": rows,
     }
     args.report.parent.mkdir(parents=True, exist_ok=True)

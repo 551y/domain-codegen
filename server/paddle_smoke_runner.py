@@ -53,9 +53,9 @@ def main() -> None:
         "input_shape": profile.get("input_shape", [1, 3, 224, 224]),
     }
     try:
-        # A task-local package preserves ModelX's relative imports of generated
+        # A task-local package preserves the converter's relative imports of generated
         # modified_*.py modules, including in the user-visible source artifact.
-        package_name = "_modelx_task"
+        package_name = "_paddle_task"
         package = types.ModuleType(package_name)
         package.__path__ = [str(code_path.parent)]
         sys.modules[package_name] = package

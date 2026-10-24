@@ -2,9 +2,9 @@
 
 > 一套 RAG 代码生成框架，两套领域知识库，按场景注入：
 > - **入口一 · 卫星协议代码生成**：星务协议知识库（3090 知识块，FAISS）；协议文档 docx → 检索增强 → LLM 生成 config.json + handler.c → 自动评测（配置四维 + AST 结构相似度）
-> - **入口二 · 无人机模型部署适配**：ONNX 知识库（1349 条，9 类）与 ModelX Paddle 映射规则（541 条）独立维护；PyTorch 源码 .py，进入后以「目标框架」开关二选一——
+> - **入口二 · 无人机模型部署适配**：ONNX 知识库（1349 条，9 类）与 Paddle 映射规则（541 条）独立维护；PyTorch 源码 .py，进入后以「目标框架」开关二选一——
 >   - **PyTorch→ONNX 部署导出**：BM25 离线检索 → LLM 生成导出代码 → **子进程真实执行导出，产出可下载的单文件 .onnx 模型**（含权重；torch 2.x 导出的外部权重自动重打包内嵌）→ **按模型真实 IO 元数据实例化机载侧 C++ 推理源码**（ONNX Runtime C++ API，动态读取输入输出，含编译/预处理说明注释）→ 评测（语法/导出调用/导出执行/onnx.checker 校验）
->   - **PyTorch→PaddlePaddle 跨框架转换**：**ModelX CMC 源码级转换**（使用自身 AST/映射规则，不依赖 LLM）→ 语法/框架迁移彻底性/结构完整性评测、ModelX API 成功率统计与 Paddle dummy 前向冒烟；额外检索 ONNX 知识库仅作参考展示，不参与转换
+>   - **PyTorch→PaddlePaddle 跨框架转换**：**源码级规则转换**（AST/映射规则，不依赖 LLM）→ 语法/框架迁移彻底性/结构完整性评测、API 转换成功率统计与 Paddle dummy 前向冒烟；额外检索 ONNX 知识库仅作参考展示，不参与转换
 
 ## 启动
 
@@ -24,15 +24,15 @@ Windows（原生 PowerShell）：`.\start.ps1` / `.\stop.ps1`，安装步骤见�
 
 **多任务并行**：在线生成（LLM 真实调用，数分钟）运行期间，工作台保持可操作——可同时运行/浏览离线预置样例；所有任务以「任务条」标签呈现进度，点击随时切换查看，同一输入重复提交会被去重。
 
-「知识库」页可分别浏览星务协议知识块（3090）、ONNX 模型部署适配知识（1349，9 类）与 ModelX Paddle 转换规则（541），均可搜索。规则条目不是带标签的性能/精度测试数据集。
+「知识库」页可分别浏览星务协议知识块（3090）、ONNX 模型部署适配知识（1349，9 类）与 Paddle 转换规则（541），均可搜索。规则条目不是带标签的性能/精度测试数据集。
 
 ## LLM 配置
 
 - 顶栏右侧齿轮：配置 API Key / Base URL / 模型（进程内生效，重启恢复环境变量）
 - 协议/ONNX 的预置样例走预生成回放，上传文件才走真实 LLM 生成（需配置 Key）。
-- **路径规则（重要）**：Paddle 样例和上传文件都优先走内置 ModelX CMC（确定性转换，不调用 LLM）；样例在 ModelX 依赖缺失时回退到随仓库交付的预生成产物，上传文件则明确提示安装依赖
+- **路径规则（重要）**：Paddle 样例和上传文件都优先走内置确定性转换（不调用 LLM）；样例在转换依赖缺失时回退到随仓库交付的预生成产物，上传文件则明确提示安装依赖
 - **检索不依赖 Key**：ONNX 知识库的检索为后端本地 BM25 + bigram 混合（离线真实执行，演示时进度条走到「检索知识库」即真实检索）
-- 评测**始终是本地真实计算**：协议路线预置样例为配置四维加权 + AST 函数匹配（树编辑距离计算量大，已按内容指纹缓存——同输入第二次秒出）；**上传协议文档无人工标准答案，改为「参照文档的覆盖度评测」**——从上传文档表格中提取命令码/遥测信号/处理函数名，与生成产物做名称级匹配（F1），外加字段完整性与 Handler 语法检查；ONNX 路线为语法 + 导出执行 + checker/冒烟检查；Paddle 路线为 ModelX API 转换统计 + 语法/迁移彻底性/结构对齐 + Paddle 导入/冒烟检查
+- 评测**始终是本地真实计算**：协议路线预置样例为配置四维加权 + AST 函数匹配（树编辑距离计算量大，已按内容指纹缓存——同输入第二次秒出）；**上传协议文档无人工标准答案，改为「参照文档的覆盖度评测」**——从上传文档表格中提取命令码/遥测信号/处理函数名，与生成产物做名称级匹配（F1），外加字段完整性与 Handler 语法检查；ONNX 路线为语法 + 导出执行 + checker/冒烟检查；Paddle 路线为 API 转换统计 + 语法/迁移彻底性/结构对齐 + Paddle 导入/冒烟检查
 
 ## 生成速度优化（在线生成）
 
@@ -46,14 +46,14 @@ Windows（原生 PowerShell）：`.\start.ps1` / `.\stop.ps1`，安装步骤见�
 - 星务协议知识库来源：`协议代码数据集2/dataset/augmented`（3090 条增强版：gdwx 253 + dllg 2837，细分块 150 字符/重叠 30，向量随数据集交付），已转换为 herta KB 构建产物格式内置于 `vendor/herta/data/kb/industrial_proto/`；预生成结果与 herta 引擎同目录；PyTorch 样例源码内置于 `vendor/opalign/`（原始出处分别为 `../demo/herta`、`../demo/opalign/EVALUATION`）
 - 预生成导出脚本：`server/preset_onnx/*_to_onnx.py`（12 个视觉样例全覆盖；densenet 脚本含 checkpoint 不可 trace 与 MaxPool dilation 不支持两个真实导出难点的处理注释）
 - Paddle 已配置并实测 9 个视觉模型：AlexNet、SqueezeNet 1.0、VGG-11、ResNet-18、MNASNet 1.0、ShuffleNet-v2 0.5x、DenseNet-121、Inception-v3、GoogLeNet。`server/paddle_demo_cases.json` 集中维护主模型类、构造参数、输入形状及预期输出；不再因为构造函数需要参数就跳过 VGG/ResNet 的前向检查。
-- ModelX 的 Python underlying-library 示例：DenseNet-121 产出 `modified_KaimingNormal.py`，Inception-v3 和 GoogLeNet 产出 `modified_TruncatedNormal.py`。这些伴随模块与主模型一起展示/交付，并一起检查语法和实际导入；界面标记“底层库改写”，可点击查看生成方法。这些是库方法子类改写，不修改已安装 Paddle 文件，不代表已验证 C/CUDA 内核重编译。
+- Python underlying-library 示例：DenseNet-121 产出 `modified_KaimingNormal.py`，Inception-v3 和 GoogLeNet 产出 `modified_TruncatedNormal.py`。这些伴随模块与主模型一起展示/交付，并一起检查语法和实际导入；界面标记“底层库改写”，可点击查看生成方法。这些是库方法子类改写，不修改已安装 Paddle 文件，不代表已验证 C/CUDA 内核重编译。
 - 可运行 `python server/tools/verify_paddle_demos.py --build-presets` 重新执行所有真实转换任务并更新 `server/preset_paddle/*_to_paddle.py` 与相应伴随模块；报告输出到 `artifacts/paddle-demo-validation.json`，记录模型、耗时、文件指纹及真实检查结果。回归要求 `pre_generated=false`，不能把离线回放当作转换成功。
-- 知识库页数据集可视化载荷现在按目标独立维护：`vendor/herta/data/kb/baseline_dataset.json`（协议基本数据集 356 条）、`vendor/onnx/dataset_view.json`（ONNX 知识库 1,349 条）和 `vendor/modelx/paddle_dataset_view.json`（ModelX PyTorch→Paddle 映射规则 541 条）；分别用 `server/tools/build_baseline_dataset.py <协议数据集目录>`、`build_onnx_dataset.py <ONNX 数据集目录>`、`build_paddle_dataset.py [ModelX CMC 目录]` 重建
+- 知识库页数据集可视化载荷现在按目标独立维护：`vendor/herta/data/kb/baseline_dataset.json`（协议基本数据集 356 条）、`vendor/onnx/dataset_view.json`（ONNX 知识库 1,349 条）和 `vendor/modelx/paddle_dataset_view.json`（PyTorch→Paddle 映射规则 541 条）；分别用 `server/tools/build_baseline_dataset.py <协议数据集目录>`、`build_onnx_dataset.py <ONNX 数据集目录>`、`build_paddle_dataset.py [转换器目录]` 重建
 - 算子样例输入为 PyTorch 模型源码（EVALUATION sourceModels，过滤 `__init__` 后 18 个）
-- ModelX CMC 转换核心已内置于 `vendor/modelx/CMC/`，首次启用 Paddle 转换前安装 `pip install -r vendor/modelx/requirements.txt`。ModelX 会直接查询已安装的 Paddle API 完成源码转换，因此 PaddlePaddle 是转换依赖，不依赖 LLM；转换完成后服务还会执行一次生成代码的导入/dummy 前向检查
+- 转换核心已内置于 `vendor/modelx/CMC/`，首次启用 Paddle 转换前安装 `pip install -r vendor/modelx/requirements.txt`。转换器会直接查询已安装的 Paddle API 完成源码转换，因此 PaddlePaddle 是转换依赖，不依赖 LLM；转换完成后服务还会执行一次生成代码的导入/dummy 前向检查
 - 本轮 9 模型回归使用 Windows / Python 3.9 / Paddle 2.6.0（CPU 执行）；依赖文件是安装声明，不代表其他 Paddle/Python 版本已通过同等回归。尤其 Python 3.12 的协议环境和 Paddle 3.x 组合尚未在本机验证，现场演示请使用已验证的 Paddle 环境，不要临时升级框架。
 - Paddle 自动评测验证的是代码可执行性与静态结构，不是 PyTorch/Paddle 数值等价、数据集精度或推理性能；没有合适构造配置时明确跳过前向，构造/运行异常明确显示失败。
-- `vendor/modelx/CMC/` 保留 ModelX 的核心转换器、PyTorch→Paddle 映射表和 AST 匹配器；`server/paddle_converter.py` 只负责把它编排进当前任务系统并汇总转换统计
+- `vendor/modelx/CMC/` 保留核心转换器、PyTorch→Paddle 映射表和 AST 匹配器；`server/paddle_converter.py` 只负责把它编排进当前任务系统并汇总转换统计
 - 协议评测分数为现场真实重算口径，与历史批次、年度报告综合口径略有差异
 
 ## 重新部署（换机器，需有网一次）
