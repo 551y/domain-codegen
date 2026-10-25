@@ -1,5 +1,7 @@
 # Herta — 基于 RAG 的工业协议处理器代码自动生成系统
 
+> **本仓库内说明**：这是 herta 引擎的原始文档。在 domain-codegen 平台中 herta 仅作为 Python 引擎被 `server/` 编排调用（生成器、评测、知识库数据），其自带的 `frontend/` 演示界面与 `output/reports/`、`output/visualization/` 历史报告已移除——平台统一使用根目录 `app/` 前端。下文涉及 frontend/reports 的段落仅作引擎原始形态参考。
+
 从已有协议文档与代码构建知识库，结合 LLM 检索增强生成（RAG）自动生成目标协议的配置文件与 C 处理代码，并提供多维度自动化评测。
 
 > 场景：卫星等无人平台的通信协议文档（Word）繁杂琐碎，人工将非结构化协议文档转写为 C 星务控制代码耗时易错。Herta 将这一过程流水线化：**协议文档 → 结构化中间表示（JSON Config）→ 协议处理代码（Handler C）→ 自动评测**。

@@ -268,8 +268,6 @@ export interface SettingsState {
 // ---------- 接口 ----------
 
 export const api = {
-  health: () => request<{ status: string }>("/health"),
-
   kbs: () => request<{ kbs: KbCard[] }>("/kbs"),
 
   samples: (kb: string) => request<{ samples: SampleItem[] }>(`/samples?kb=${kb}`),

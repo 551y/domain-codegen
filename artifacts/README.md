@@ -12,10 +12,6 @@ Current regression evidence:
 - `paddle-densenet-library-validation.png` and
   `paddle-inception-library-validation.png`: screenshots from that browser run.
 
-`paddle-evaluation-running.png`, `paddle-evaluation-complete.png` and
-`paddle-shufflenet-validation.json` are earlier integration snapshots, retained
-for reference. Use the full demo/browser reports for the final regression.
-
 The tested environment is Windows, Python 3.9 and Paddle 2.6.0. These checks
 verify executability and static conversion structure, not dataset accuracy,
 PyTorch/Paddle numerical equivalence or an inference-performance benchmark.
