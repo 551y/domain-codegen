@@ -38,7 +38,8 @@ export interface SampleItem {
   has_gt?: boolean;
   pre_generated?: boolean;
   domain?: string;
-  modelx_variant?: string;
+  semantics_demo?: boolean;
+  support_note?: string;
   demo_label?: string;
   demo_available?: boolean;
 }
@@ -62,8 +63,7 @@ export interface TaskIntermediate {
   retrieved?: RetrievedItem[];
   retrieval?: Record<string, number | string>;
   config_stats?: Record<string, number>;
-  conversion_stats?: { success: number; failed: number; rate: number };
-  evaluation_steps?: { name: string; status: "pending" | "running" | "passed" | "failed" | "skipped"; detail?: string }[];
+  evaluation_steps?: { name: string; status: "pending" | "running" | "passed" | "failed" | "skipped" | "unverified"; detail?: string }[];
   gen_mode?: string;
   live?: LiveOutput;
   live_config?: LiveOutput;
@@ -113,28 +113,63 @@ export interface Evaluation {
   uses_paddle?: boolean;
   torch_residue?: boolean;
   custom_wrappers?: number;
-  paddle_runtime?: {
-    attempted: boolean;
-    available?: boolean;
-    import_ok?: boolean;
-    construction_attempted?: boolean;
-    construction_ok?: boolean;
-    forward_attempted?: boolean;
-    forward_ok?: boolean;
-    class_name?: string;
-    output_shape?: (number | string)[];
+  semtrans?: {
+    status?: "passed" | "failed" | "unverified";
+    verified?: boolean;
+    provider?: string;
+    model?: string;
+    generation_elapsed_s?: number;
+    total_elapsed_s?: number;
+    repair_rounds?: number;
+    validation_rounds?: {
+      phase?: string;
+      status?: string;
+      verified?: boolean;
+      valid_paired_cases?: number;
+      search_attempts?: number;
+      elapsed_s?: number;
+      atol?: number;
+      rtol?: number;
+      issues?: unknown;
+      input_search?: { framework?: string; attempts?: number; valid_cases?: number; elapsed_s?: number; budget_ms?: number }[];
+    }[];
+    semantic_evidence?: {
+      alignment_records?: Record<string, unknown>[];
+      parameter_alignment_records?: Record<string, unknown>[];
+      semantic_issue_count?: number;
+      first_mismatch?: Record<string, unknown> | null;
+    }[];
+    numerical_checks?: {
+      case_index?: number;
+      passed?: boolean;
+      outputs?: {
+        output_index?: number;
+        shape?: number[];
+        max_absolute_error?: number;
+        max_relative_error?: number;
+        failed_elements?: number;
+        element_count?: number;
+      }[];
+    }[][];
+    numerical_summaries?: {
+      checked_cases?: number;
+      checked_outputs?: number;
+      max_absolute_error?: number | null;
+      max_relative_error?: number | null;
+      failed_elements?: number;
+      checked_elements?: number;
+    }[];
+    stages?: { name: string; status: string; detail?: string }[];
+    diagnostic?: unknown;
+    limitations?: string[];
+    fault_injection?: { label?: string; mutation?: string; scope?: string };
+    code_history?: { round: number; stage: string; content: string }[];
+    atol?: number;
+    rtol?: number;
+    search_budget_ms?: number;
     input_shape?: number[];
-    params?: number;
     profile_label?: string;
-    finite?: boolean;
-    output_shape_ok?: boolean;
-    elapsed_s?: number;
-    error?: string;
-    skip_reason?: string;
   };
-  unsupported_apis?: Record<string, number>;
-  library_modifications?: { file: string; level: string; classes: string[] }[];
-  compatibility_fixes?: string[];
   total_calls?: number;
   retrieved_count?: number;
   retrieved?: RetrievedItem[];
@@ -229,23 +264,22 @@ export interface PaddleDatasetRecord {
   category_label: string;
   source: string;
   text: string;
-  source_api: string;
-  target_api: string;
-  matcher: string;
-  classification?: number | null;
-  params_change: Record<string, string>;
+  source_api?: string;
+  target_api?: string;
+  source_definition: Record<string, unknown>;
+  target_definition: Record<string, unknown>;
   framework_version: string;
   verification_status: string;
 }
 
 export interface PaddleDataset {
   total: number;
+  source_revision: string;
   categories: { key: string; label: string; count: number }[];
   composition: {
-    direct: number;
-    parameter_rewrites: number;
-    semantic_rewrites: number;
-    unsupported: number;
+    paired: number;
+    source_only: number;
+    target_only: number;
   };
   files: { path: string; lines: number; note: string }[];
   records: PaddleDatasetRecord[];
@@ -260,9 +294,26 @@ export interface OnnxRecord {
   preview: string;
 }
 
+export type ModelProvider = "zcode" | "codex" | "deepseek";
+
+export interface ProviderProfile {
+  base_url: string;
+  model: string;
+  api_key_type: "standard" | "coding_plan" | "other" | "unclassified";
+  api_key_configured: boolean;
+  configured: boolean;
+}
+
 export interface SettingsState {
   llm_available: boolean;
+  provider: ModelProvider;
   chat_model: string;
+  chat_base_url: string;
+  api_key_type: "standard" | "coding_plan" | "other" | "unclassified";
+  api_key_configured: boolean;
+  configured: boolean;
+  providers: Record<ModelProvider, ProviderProfile>;
+  catalog: Record<ModelProvider, { label: string; vendor: string; kind: string }>;
 }
 
 // ---------- 接口 ----------
@@ -281,11 +332,11 @@ export const api = {
     );
   },
 
-  generate: (kb: string, source: string, mode: "sample" | "upload") =>
+  generate: (kb: string, source: string, mode: "sample" | "upload", profile?: Record<string, unknown>) =>
     request<{ task_id: string }>("/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kb, source, mode }),
+      body: JSON.stringify({ kb, source, mode, profile }),
     }),
 
   task: (taskId: string) => request<TaskState>(`/task/${taskId}`),
@@ -315,10 +366,14 @@ export const api = {
 
   settings: () => request<SettingsState>("/settings"),
 
-  saveSettings: (data: { api_key?: string; chat_model?: string; chat_base_url?: string }) =>
-    request<{ status: string; llm_available: boolean }>("/settings", {
+  saveSettings: (data: { api_key?: string; chat_model?: string; chat_base_url?: string; chat_provider?: ModelProvider; api_key_type?: SettingsState["api_key_type"]; clear_api_key?: boolean }) =>
+    request<{ status: string } & SettingsState>("/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     }),
+
+  testSettings: () => request<{ status: string; provider: string; model: string }>("/settings/test", {
+    method: "POST",
+  }),
 };

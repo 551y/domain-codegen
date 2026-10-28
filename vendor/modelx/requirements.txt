@@ -1,8 +1,0 @@
-# Runtime dependencies for the vendored ModelX CMC source converter.
-# ModelX resolves target APIs against the installed Paddle package, so Paddle
-# is required by the converter itself (the generated-model smoke test uses it
-# as well).
-astor>=0.8.1
-numpy>=1.26.0
-pandas>=2.1.0
-paddlepaddle>=2.5.2

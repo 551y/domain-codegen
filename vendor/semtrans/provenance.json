@@ -1,0 +1,335 @@
+{
+  "source_repository": "SemTrans local source tree provided for this migration",
+  "source_revision": "431bd23c9773ec4a3c2d9d924e433e93d5a5577b",
+  "scope": "SemTrans package files copied into vendor/semtrans/SemTrans, excluding tests and experiment artifacts",
+  "file_manifest": {
+    "__init__.py": {
+      "original_sha256": "dba5166ad9db9ba648c1032ebbd34dcd0d085b50023b839ef5c68ca1db93a563",
+      "vendored_sha256": "dba5166ad9db9ba648c1032ebbd34dcd0d085b50023b839ef5c68ca1db93a563",
+      "matches_original": true
+    },
+    "enhanced_conversion/__init__.py": {
+      "original_sha256": "77d9478590762ab68790d5b991170b2d6aab33d20978bf8256ba58470777f60e",
+      "vendored_sha256": "77d9478590762ab68790d5b991170b2d6aab33d20978bf8256ba58470777f60e",
+      "matches_original": true
+    },
+    "enhanced_conversion/config.py": {
+      "original_sha256": "e9b5b153cd49b0e965efdb27b03f4edad5f4ceb40f6456cbea1877ecc3ac2c31",
+      "vendored_sha256": "e9b5b153cd49b0e965efdb27b03f4edad5f4ceb40f6456cbea1877ecc3ac2c31",
+      "matches_original": true
+    },
+    "enhanced_conversion/framework_knowledge_retrivals.py": {
+      "original_sha256": "171a3a3e6a3434b876cdb1adab71f779d4e859d679d8489c322301ec8f9a8997",
+      "vendored_sha256": "e0c8ed004764bade2ea5b44ba2e7418fd63537f9bfc70a412a48c1c3552d81f8",
+      "matches_original": false
+    },
+    "enhanced_conversion/utils.py": {
+      "original_sha256": "7c5b77c2c5a90c8737b8ec54e53a2980a839e90a7ffab67521ca975a5041b979",
+      "vendored_sha256": "7c5b77c2c5a90c8737b8ec54e53a2980a839e90a7ffab67521ca975a5041b979",
+      "matches_original": true
+    },
+    "llm.py": {
+      "original_sha256": "cfbf261cc74311a8db6b9e92c65d6396f5fe7a871b0b8fc64b8000d17b6117c6",
+      "vendored_sha256": "e170a86e44e6c6c180a331306c021a2b2c520f67b71662f9fdf5b92522334e4f",
+      "matches_original": false
+    },
+    "math_symbol_base/__init__.py": {
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "vendored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "matches_original": true
+    },
+    "math_symbol_base/backends/__init__.py": {
+      "original_sha256": "6efdd7d3278ef3b540324b36e551e3fb94e77d097ac342ef24de67fe330616a0",
+      "vendored_sha256": "6efdd7d3278ef3b540324b36e551e3fb94e77d097ac342ef24de67fe330616a0",
+      "matches_original": true
+    },
+    "math_symbol_base/backends/numpy_backend.py": {
+      "original_sha256": "704ad2a0df37fde469eeddeaef2f0fbc0bfe7fff92dd2a23ee0854bd13a143e1",
+      "vendored_sha256": "704ad2a0df37fde469eeddeaef2f0fbc0bfe7fff92dd2a23ee0854bd13a143e1",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/__init__.py": {
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "vendored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/abstract/__init__.py": {
+      "original_sha256": "96f58dd53c7e6083d606b118887c68ddbf9cae560115177b9994c6fe76fb6a48",
+      "vendored_sha256": "96f58dd53c7e6083d606b118887c68ddbf9cae560115177b9994c6fe76fb6a48",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/abstract/arith.py": {
+      "original_sha256": "381a07ce34b5f24ff2e7eecfabdc8ce7ac2eaf01df6c49fb0cb5bede345bf097",
+      "vendored_sha256": "381a07ce34b5f24ff2e7eecfabdc8ce7ac2eaf01df6c49fb0cb5bede345bf097",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/abstract/dtype.py": {
+      "original_sha256": "333f538166952744a165db44982683388faf628681fcd503fc777f72d52eaa08",
+      "vendored_sha256": "333f538166952744a165db44982683388faf628681fcd503fc777f72d52eaa08",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/abstract/error.py": {
+      "original_sha256": "759c2da75f8bee18821954589f62dbda4047b59756f5e562dbe6c2c3ab6aa658",
+      "vendored_sha256": "759c2da75f8bee18821954589f62dbda4047b59756f5e562dbe6c2c3ab6aa658",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/abstract/extension.py": {
+      "original_sha256": "f6b5894b1911470f1633aab2c70bf779e66b27aef2bb151ed536ec7a8eea09d0",
+      "vendored_sha256": "f6b5894b1911470f1633aab2c70bf779e66b27aef2bb151ed536ec7a8eea09d0",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/abstract/gir.py": {
+      "original_sha256": "ecef8a03fe13b4120a276eda97e3234a9816cbed85669d60b9a4de207bc7fbed",
+      "vendored_sha256": "ecef8a03fe13b4120a276eda97e3234a9816cbed85669d60b9a4de207bc7fbed",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/abstract/op.py": {
+      "original_sha256": "e296a7642bdb7d7aeb09f7e359f40572e0d8e24d87d29a6ba5184342bee2b8ba",
+      "vendored_sha256": "e296a7642bdb7d7aeb09f7e359f40572e0d8e24d87d29a6ba5184342bee2b8ba",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/abstract/tensor.py": {
+      "original_sha256": "15dd89ee656a146136e81f772ca85f73b5c07bfcf451f8f5da065b655bc058d1",
+      "vendored_sha256": "15dd89ee656a146136e81f772ca85f73b5c07bfcf451f8f5da065b655bc058d1",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/materialize/__init__.py": {
+      "original_sha256": "4e92d61007e51c1abf0d8821f6726ec3cb3076ebe567c185d5134e537b5fdc8c",
+      "vendored_sha256": "4e92d61007e51c1abf0d8821f6726ec3cb3076ebe567c185d5134e537b5fdc8c",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/materialize/paddle/__init__.py": {
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "vendored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/materialize/paddle/init_trace.py": {
+      "original_sha256": "77f1436dba4d643c43bc747cc38eac5f991902b9c7b5df6cbad6dd6c5ab550aa",
+      "vendored_sha256": "77f1436dba4d643c43bc747cc38eac5f991902b9c7b5df6cbad6dd6c5ab550aa",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/materialize/paddle/input_gen.py": {
+      "original_sha256": "58375ec7b56555b5e8733eba88fd54cd1def769c89b8daf8bf2b6298d1f746ef",
+      "vendored_sha256": "58375ec7b56555b5e8733eba88fd54cd1def769c89b8daf8bf2b6298d1f746ef",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/materialize/paddle/numeric.py": {
+      "original_sha256": "cf58810cd6cbb0b387722c95f2cabd2c68bf4c2f98bc857fa70d2ed70780fa93",
+      "vendored_sha256": "cf58810cd6cbb0b387722c95f2cabd2c68bf4c2f98bc857fa70d2ed70780fa93",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/materialize/paddle/paddlenet.py": {
+      "original_sha256": "ea2b79de8dd5848798f862a15caddb82bd8ba0edc986ec6ff21918e85ef49d65",
+      "vendored_sha256": "ea2b79de8dd5848798f862a15caddb82bd8ba0edc986ec6ff21918e85ef49d65",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/materialize/paddle/paddleop.py": {
+      "original_sha256": "56bda1d9986377bc9d82f200c6b874d58baf50c4dd483bdf0980952975d2bc3f",
+      "vendored_sha256": "56bda1d9986377bc9d82f200c6b874d58baf50c4dd483bdf0980952975d2bc3f",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/materialize/registry.py": {
+      "original_sha256": "fb0d9eea9a9acba2f201ec198a14f2f7e848556ec826a26b17f49e5de29ecad2",
+      "vendored_sha256": "fb0d9eea9a9acba2f201ec198a14f2f7e848556ec826a26b17f49e5de29ecad2",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/materialize/torch/__init__.py": {
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "vendored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/materialize/torch/init_trace.py": {
+      "original_sha256": "a6f8103fa43da51a4d3f551ad0b6d29b5d7fc95f4cc3a043b3dfb6458ffd8170",
+      "vendored_sha256": "a6f8103fa43da51a4d3f551ad0b6d29b5d7fc95f4cc3a043b3dfb6458ffd8170",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/materialize/torch/input_gen.py": {
+      "original_sha256": "af311252313f1380350e97b98613776ddd629d513aec93939be24e96362c37b4",
+      "vendored_sha256": "af311252313f1380350e97b98613776ddd629d513aec93939be24e96362c37b4",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/materialize/torch/numeric.py": {
+      "original_sha256": "4d350710c8c0177f6a4be88f1c10c511e36f2ae43b2032c4478b30f3e3bee8c6",
+      "vendored_sha256": "4d350710c8c0177f6a4be88f1c10c511e36f2ae43b2032c4478b30f3e3bee8c6",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/materialize/torch/torchnet.py": {
+      "original_sha256": "b55d9ef91fce4fbb537eccf7f029122cd1152bac5527d2350575ae56ca75319a",
+      "vendored_sha256": "b55d9ef91fce4fbb537eccf7f029122cd1152bac5527d2350575ae56ca75319a",
+      "matches_original": true
+    },
+    "math_symbol_base/frontends/materialize/torch/torchop.py": {
+      "original_sha256": "0bba8841de2da807dd7e1b0cc88551df17229bc5966f46be4070a4ec95383c63",
+      "vendored_sha256": "0bba8841de2da807dd7e1b0cc88551df17229bc5966f46be4070a4ec95383c63",
+      "matches_original": true
+    },
+    "math_symbol_base/symbolic_definition/__init__.py": {
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "vendored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "matches_original": true
+    },
+    "math_symbol_base/symbolic_definition/paddle/nn_ops.yaml": {
+      "original_sha256": "a1a7af25db5f0896f84736f2040e760ed4e414cc164458d589ea412c4bba24ad",
+      "vendored_sha256": "a1a7af25db5f0896f84736f2040e760ed4e414cc164458d589ea412c4bba24ad",
+      "matches_original": true
+    },
+    "math_symbol_base/symbolic_definition/paddle/tensors.yaml": {
+      "original_sha256": "b62f440a90004ed657ecf734ca7cb4821fe0597381164e2fdcf34ad38ac24034",
+      "vendored_sha256": "b62f440a90004ed657ecf734ca7cb4821fe0597381164e2fdcf34ad38ac24034",
+      "matches_original": true
+    },
+    "math_symbol_base/symbolic_definition/pytorch/nn_ops.yaml": {
+      "original_sha256": "cdc1b76dcb71a8e4f03f9893bc2a5df5d0d1b394fe933f18ed81b0a47e62380b",
+      "vendored_sha256": "cdc1b76dcb71a8e4f03f9893bc2a5df5d0d1b394fe933f18ed81b0a47e62380b",
+      "matches_original": true
+    },
+    "math_symbol_base/symbolic_definition/pytorch/tensors.yaml": {
+      "original_sha256": "bb875576d2cdc3fe26548feb27eafc760dab90fef10521f30b9005a472b278fc",
+      "vendored_sha256": "bb875576d2cdc3fe26548feb27eafc760dab90fef10521f30b9005a472b278fc",
+      "matches_original": true
+    },
+    "math_symbol_base/symbolic_definition/runtime_mathir_index.json": {
+      "original_sha256": "7f18317f6531ad8c30a3af3edf4e0ad18412f32db081553075ebed780ba0dce1",
+      "vendored_sha256": "7f18317f6531ad8c30a3af3edf4e0ad18412f32db081553075ebed780ba0dce1",
+      "matches_original": true
+    },
+    "math_symbol_base/symbolic_system/__init__.py": {
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "vendored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "matches_original": true
+    },
+    "math_symbol_base/symbolic_system/custom_symbolic_ops.py": {
+      "original_sha256": "047d6a7ba1caf9bf140a8b7d73e289da865a597e58a723059b612415d74c95a5",
+      "vendored_sha256": "047d6a7ba1caf9bf140a8b7d73e289da865a597e58a723059b612415d74c95a5",
+      "matches_original": true
+    },
+    "math_symbol_base/symbolic_system/math_symbol_space.py": {
+      "original_sha256": "0966aaf56343c62807e87b6be8906bb6dcb2e8504f60f39a337d0d63f15e12f5",
+      "vendored_sha256": "0966aaf56343c62807e87b6be8906bb6dcb2e8504f60f39a337d0d63f15e12f5",
+      "matches_original": true
+    },
+    "math_symbol_base/symbolic_system/symbolic_evaluator.py": {
+      "original_sha256": "542edfa829ce5da396da2e9364a68d7ba44cc89559d83533a2a4f2dd178a9b2d",
+      "vendored_sha256": "0326a52337a15ddc94162f16b7bbd143ab38c253b0c4d092b8e5aa3caba51c5e",
+      "matches_original": false
+    },
+    "testing_and_repair/__init__.py": {
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "vendored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "matches_original": true
+    },
+    "testing_and_repair/constraint_driven_repair.py": {
+      "original_sha256": "78393c84a27dfa6ab546c4c8b2b9dcd6ae509cd8595b6a144aa1657bf891f937",
+      "vendored_sha256": "bcfcf0262e19e5a1fa6595714d2ddfe10c60208f9bc843036eb1b520a8994fed",
+      "matches_original": false
+    },
+    "testing_and_repair/differential_testing.py": {
+      "original_sha256": "3f23135a2be2351c6ea9eb1c06572c510a56014b6abd447261a32710fa44ca02",
+      "vendored_sha256": "488064bd194facc841ad36beebdc9e3c3bf246e1cf5e97a5cb2d1fd068b84a2e",
+      "matches_original": false
+    },
+    "testing_and_repair/logging.py": {
+      "original_sha256": "ee6af48b39b0cff6802fd67961c6223d1064fd92b8cec91f1c5f349a6ecd77f2",
+      "vendored_sha256": "ee6af48b39b0cff6802fd67961c6223d1064fd92b8cec91f1c5f349a6ecd77f2",
+      "matches_original": true
+    },
+    "testing_and_repair/tensorrt_support/__init__.py": {
+      "original_sha256": "c87a1c8666040a10d2fad4881992d5675c998bcb318a24ca494f129aa7ea0dbe",
+      "vendored_sha256": "c87a1c8666040a10d2fad4881992d5675c998bcb318a24ca494f129aa7ea0dbe",
+      "matches_original": true
+    },
+    "testing_and_repair/tensorrt_support/direct_identity.py": {
+      "original_sha256": "f7ccc02f374b59dd4ec94a155a07bc85fa540b05938c66cdf122b59914fb1974",
+      "vendored_sha256": "f7ccc02f374b59dd4ec94a155a07bc85fa540b05938c66cdf122b59914fb1974",
+      "matches_original": true
+    },
+    "testing_and_repair/tensorrt_support/io_utils.py": {
+      "original_sha256": "ca0ecd7cf25933a912b912dcaabea7efab6a469f2e15bac11c774dca7fcca0cf",
+      "vendored_sha256": "ca0ecd7cf25933a912b912dcaabea7efab6a469f2e15bac11c774dca7fcca0cf",
+      "matches_original": true
+    },
+    "testing_and_repair/tensorrt_support/mathir_capability_registry.json": {
+      "original_sha256": "0ae442bcfb1f13563bce0f4eff51560609e2e791c5b2b058fc6f1437f7281182",
+      "vendored_sha256": "0ae442bcfb1f13563bce0f4eff51560609e2e791c5b2b058fc6f1437f7281182",
+      "matches_original": true
+    },
+    "testing_and_repair/tensorrt_support/pooling_lowering.py": {
+      "original_sha256": "a58742e867d01e44f9b7b32cdbb271047948e2975885166f8c9d41364936f4d0",
+      "vendored_sha256": "a58742e867d01e44f9b7b32cdbb271047948e2975885166f8c9d41364936f4d0",
+      "matches_original": true
+    },
+    "testing_and_repair/tensorrt_support/unfold_lowering.py": {
+      "original_sha256": "4f89c57cc1da96001cd8e63c9442efb49b78b3e2d15b1a1e2dab86867f5beaab",
+      "vendored_sha256": "4f89c57cc1da96001cd8e63c9442efb49b78b3e2d15b1a1e2dab86867f5beaab",
+      "matches_original": true
+    },
+    "testing_and_repair/util.py": {
+      "original_sha256": "ced726e2ece7e2adc373e68660bf3523cd257e285185e7e91c1f1b17362a8a50",
+      "vendored_sha256": "ced726e2ece7e2adc373e68660bf3523cd257e285185e7e91c1f1b17362a8a50",
+      "matches_original": true
+    }
+  },
+  "vendored_core_files": {
+    "SemTrans/__init__.py": "dba5166ad9db9ba648c1032ebbd34dcd0d085b50023b839ef5c68ca1db93a563",
+    "SemTrans/enhanced_conversion/__init__.py": "77d9478590762ab68790d5b991170b2d6aab33d20978bf8256ba58470777f60e",
+    "SemTrans/enhanced_conversion/config.py": "e9b5b153cd49b0e965efdb27b03f4edad5f4ceb40f6456cbea1877ecc3ac2c31",
+    "SemTrans/enhanced_conversion/framework_knowledge_retrivals.py": "e0c8ed004764bade2ea5b44ba2e7418fd63537f9bfc70a412a48c1c3552d81f8",
+    "SemTrans/enhanced_conversion/utils.py": "7c5b77c2c5a90c8737b8ec54e53a2980a839e90a7ffab67521ca975a5041b979",
+    "SemTrans/llm.py": "e170a86e44e6c6c180a331306c021a2b2c520f67b71662f9fdf5b92522334e4f",
+    "SemTrans/math_symbol_base/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "SemTrans/math_symbol_base/backends/__init__.py": "6efdd7d3278ef3b540324b36e551e3fb94e77d097ac342ef24de67fe330616a0",
+    "SemTrans/math_symbol_base/backends/numpy_backend.py": "704ad2a0df37fde469eeddeaef2f0fbc0bfe7fff92dd2a23ee0854bd13a143e1",
+    "SemTrans/math_symbol_base/frontends/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "SemTrans/math_symbol_base/frontends/abstract/__init__.py": "96f58dd53c7e6083d606b118887c68ddbf9cae560115177b9994c6fe76fb6a48",
+    "SemTrans/math_symbol_base/frontends/abstract/arith.py": "381a07ce34b5f24ff2e7eecfabdc8ce7ac2eaf01df6c49fb0cb5bede345bf097",
+    "SemTrans/math_symbol_base/frontends/abstract/dtype.py": "333f538166952744a165db44982683388faf628681fcd503fc777f72d52eaa08",
+    "SemTrans/math_symbol_base/frontends/abstract/error.py": "759c2da75f8bee18821954589f62dbda4047b59756f5e562dbe6c2c3ab6aa658",
+    "SemTrans/math_symbol_base/frontends/abstract/extension.py": "f6b5894b1911470f1633aab2c70bf779e66b27aef2bb151ed536ec7a8eea09d0",
+    "SemTrans/math_symbol_base/frontends/abstract/gir.py": "ecef8a03fe13b4120a276eda97e3234a9816cbed85669d60b9a4de207bc7fbed",
+    "SemTrans/math_symbol_base/frontends/abstract/op.py": "e296a7642bdb7d7aeb09f7e359f40572e0d8e24d87d29a6ba5184342bee2b8ba",
+    "SemTrans/math_symbol_base/frontends/abstract/tensor.py": "15dd89ee656a146136e81f772ca85f73b5c07bfcf451f8f5da065b655bc058d1",
+    "SemTrans/math_symbol_base/frontends/materialize/__init__.py": "4e92d61007e51c1abf0d8821f6726ec3cb3076ebe567c185d5134e537b5fdc8c",
+    "SemTrans/math_symbol_base/frontends/materialize/paddle/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "SemTrans/math_symbol_base/frontends/materialize/paddle/init_trace.py": "77f1436dba4d643c43bc747cc38eac5f991902b9c7b5df6cbad6dd6c5ab550aa",
+    "SemTrans/math_symbol_base/frontends/materialize/paddle/input_gen.py": "58375ec7b56555b5e8733eba88fd54cd1def769c89b8daf8bf2b6298d1f746ef",
+    "SemTrans/math_symbol_base/frontends/materialize/paddle/numeric.py": "cf58810cd6cbb0b387722c95f2cabd2c68bf4c2f98bc857fa70d2ed70780fa93",
+    "SemTrans/math_symbol_base/frontends/materialize/paddle/paddlenet.py": "ea2b79de8dd5848798f862a15caddb82bd8ba0edc986ec6ff21918e85ef49d65",
+    "SemTrans/math_symbol_base/frontends/materialize/paddle/paddleop.py": "56bda1d9986377bc9d82f200c6b874d58baf50c4dd483bdf0980952975d2bc3f",
+    "SemTrans/math_symbol_base/frontends/materialize/registry.py": "fb0d9eea9a9acba2f201ec198a14f2f7e848556ec826a26b17f49e5de29ecad2",
+    "SemTrans/math_symbol_base/frontends/materialize/torch/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "SemTrans/math_symbol_base/frontends/materialize/torch/init_trace.py": "a6f8103fa43da51a4d3f551ad0b6d29b5d7fc95f4cc3a043b3dfb6458ffd8170",
+    "SemTrans/math_symbol_base/frontends/materialize/torch/input_gen.py": "af311252313f1380350e97b98613776ddd629d513aec93939be24e96362c37b4",
+    "SemTrans/math_symbol_base/frontends/materialize/torch/numeric.py": "4d350710c8c0177f6a4be88f1c10c511e36f2ae43b2032c4478b30f3e3bee8c6",
+    "SemTrans/math_symbol_base/frontends/materialize/torch/torchnet.py": "b55d9ef91fce4fbb537eccf7f029122cd1152bac5527d2350575ae56ca75319a",
+    "SemTrans/math_symbol_base/frontends/materialize/torch/torchop.py": "0bba8841de2da807dd7e1b0cc88551df17229bc5966f46be4070a4ec95383c63",
+    "SemTrans/math_symbol_base/symbolic_definition/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "SemTrans/math_symbol_base/symbolic_system/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "SemTrans/math_symbol_base/symbolic_system/custom_symbolic_ops.py": "047d6a7ba1caf9bf140a8b7d73e289da865a597e58a723059b612415d74c95a5",
+    "SemTrans/math_symbol_base/symbolic_system/math_symbol_space.py": "0966aaf56343c62807e87b6be8906bb6dcb2e8504f60f39a337d0d63f15e12f5",
+    "SemTrans/math_symbol_base/symbolic_system/symbolic_evaluator.py": "0326a52337a15ddc94162f16b7bbd143ab38c253b0c4d092b8e5aa3caba51c5e",
+    "SemTrans/testing_and_repair/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "SemTrans/testing_and_repair/constraint_driven_repair.py": "bcfcf0262e19e5a1fa6595714d2ddfe10c60208f9bc843036eb1b520a8994fed",
+    "SemTrans/testing_and_repair/differential_testing.py": "488064bd194facc841ad36beebdc9e3c3bf246e1cf5e97a5cb2d1fd068b84a2e",
+    "SemTrans/testing_and_repair/logging.py": "ee6af48b39b0cff6802fd67961c6223d1064fd92b8cec91f1c5f349a6ecd77f2",
+    "SemTrans/testing_and_repair/tensorrt_support/__init__.py": "c87a1c8666040a10d2fad4881992d5675c998bcb318a24ca494f129aa7ea0dbe",
+    "SemTrans/testing_and_repair/tensorrt_support/direct_identity.py": "f7ccc02f374b59dd4ec94a155a07bc85fa540b05938c66cdf122b59914fb1974",
+    "SemTrans/testing_and_repair/tensorrt_support/io_utils.py": "ca0ecd7cf25933a912b912dcaabea7efab6a469f2e15bac11c774dca7fcca0cf",
+    "SemTrans/testing_and_repair/tensorrt_support/pooling_lowering.py": "a58742e867d01e44f9b7b32cdbb271047948e2975885166f8c9d41364936f4d0",
+    "SemTrans/testing_and_repair/tensorrt_support/unfold_lowering.py": "4f89c57cc1da96001cd8e63c9442efb49b78b3e2d15b1a1e2dab86867f5beaab",
+    "SemTrans/testing_and_repair/util.py": "ced726e2ece7e2adc373e68660bf3523cd257e285185e7e91c1f1b17362a8a50"
+  },
+  "known_adapter_changes": [
+    "enhanced_conversion_agent accepts task_guidance for the two explicit demo profiles",
+    "SemTrans LLM response keyword mismatch fixed to model_type",
+    "bounded demo input-search configuration and empty-input fail-closed status added",
+    "capture actual SemanticTracer region and first-mismatch evidence for the UI",
+    "record every output numerical error and validate each output shape, dtype, finiteness, and tolerance",
+    "use explicit client transport capability and response shape instead of model-name streaming heuristics",
+    "compact demo generation prompt suppresses chain-of-thought and long reference scaffolding for real model latency",
+    "parameter injection transposes 2D source Linear weights when target Paddle shape is [in, out]",
+    "Paddle Linear bias_attr alias maps the stored bias tensor to SemTrans symbol B"
+  ],
+  "third_party_notice": "vendor/semtrans/THIRD_PARTY_NOTICES.md",
+  "license_copy": "vendor/semtrans/LICENSES/Apache-2.0.txt",
+  "original_semtrans_license": "No public license selected in source README; review before public redistribution."
+}

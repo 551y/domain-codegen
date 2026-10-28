@@ -25,7 +25,7 @@ const CATEGORY_STYLE: Record<string, string> = {
   转换示例: "bg-sky-500/10 text-sky-600",
 };
 
-// ---------- 数据集可视化（两个知识库共用同一实现，风格与数据集独立页一致） ----------
+// ---------- 数据集可视化（各知识源共用展示组件，内容与统计分别生成） ----------
 
 interface VizRecord {
   id: string;
@@ -255,18 +255,18 @@ function ModelDatasetView({ data }: { data: OnnxDataset }) {
   return <DatasetViz cfg={cfg} />;
 }
 
-const PADDLE_PALETTE = ["#5487C5", "#CD9251", "#8E72BE", "#C46D87", "#808590"];
+const PADDLE_PALETTE = ["#5487C5", "#CD9251", "#8E72BE"];
 
 function PaddleDatasetView({ data }: { data: PaddleDataset }) {
   const cfg: DatasetVizConfig = {
-    headerNote: "数据集可视化 · PyTorch→Paddle 映射规则",
+    headerNote: `SemTrans 源码语义目录 · revision ${data.source_revision}`,
     primary: {
-      total: data.total, label: "条 · 映射规则",
-      sub: `直接映射 ${fmtNum(data.composition.direct)} · 参数改写 ${fmtNum(data.composition.parameter_rewrites)} · 语义转换 ${fmtNum(data.composition.semantic_rewrites)}`,
+      total: data.total, label: "条 · SemTrans 算子定义",
+      sub: `两侧都有定义 ${fmtNum(data.composition.paired)} · PyTorch 单侧 ${fmtNum(data.composition.source_only)} · Paddle 单侧 ${fmtNum(data.composition.target_only)}`,
     },
     secondary: {
-      total: data.composition.unsupported, label: "条 · 不支持规则",
-      sub: "来自 pytorch_to_paddlepaddle.json 的 Unsupported 条目",
+      total: data.composition.paired, label: "条 · 两侧均有定义",
+      sub: "公式、属性、形状与有效性约束以定义文件实际内容为准",
     },
     kinds: data.categories.map((c) => ({ key: c.key, label: c.label, count: c.count })),
     kindColors: Object.fromEntries(data.categories.map((c, i) => [c.key, PADDLE_PALETTE[i % PADDLE_PALETTE.length]])),
@@ -274,8 +274,8 @@ function PaddleDatasetView({ data }: { data: PaddleDataset }) {
       id: r.id, title: r.title, category: r.category, category_label: r.category_label,
       text: r.text, isDoc: false,
       meta: [
-        ["源 API", r.source_api], ["目标 API", r.target_api || "—"],
-        ["Matcher", r.matcher || "—"], ["参数改写", Object.keys(r.params_change || {}).join(", ") || "—"],
+        ["PyTorch 算子", r.source_api || "—"], ["Paddle 算子", r.target_api || "—"],
+        ["定义状态", r.verification_status], ["来源", r.source],
       ],
     })),
     files: data.files,
@@ -329,7 +329,7 @@ export default function KnowledgePage() {
     if (!paddleDs || tab !== "paddle" || !query.trim()) return paddleDs;
     const q = query.trim().toLowerCase();
     const records = paddleDs.records.filter((r) =>
-      [r.title, r.source_api, r.target_api, r.matcher, r.category_label, r.text]
+      [r.title, r.source_api, r.target_api, r.category_label, r.text]
         .some((v) => String(v || "").toLowerCase().includes(q)),
     );
     const counts = new Map(records.map((r) => [r.category, 0]));
@@ -339,10 +339,9 @@ export default function KnowledgePage() {
       total: records.length,
       categories: paddleDs.categories.map((c) => ({ ...c, count: counts.get(c.key) || 0 })),
       composition: {
-        direct: counts.get("direct_mapping") || 0,
-        parameter_rewrites: counts.get("parameter_rewrite") || 0,
-        semantic_rewrites: counts.get("semantic_rewrite") || 0,
-        unsupported: counts.get("unsupported") || 0,
+        paired: counts.get("paired") || 0,
+        source_only: counts.get("source_only") || 0,
+        target_only: counts.get("target_only") || 0,
       },
       records,
     };
@@ -365,7 +364,7 @@ export default function KnowledgePage() {
         >
           <Satellite size={14} className="text-primary" />
           星务协议知识库
-          <span className="font-mono text-[10px] text-muted-foreground">{protoDs?.baseline.total ?? 0} 条数据</span>
+          <span className="font-mono text-[10px] text-muted-foreground">{chunkTotal} 知识块</span>
         </button>
         <button
           onClick={() => setTab("operator")}
@@ -386,8 +385,8 @@ export default function KnowledgePage() {
           )}
         >
           <Database size={14} className="text-primary" />
-          Paddle 转换规则
-          <span className="font-mono text-[10px] text-muted-foreground">{paddleDs?.total ?? 0} 条规则</span>
+          SemTrans 语义定义
+          <span className="font-mono text-[10px] text-muted-foreground">{paddleDs?.total ?? 0} 项定义</span>
         </button>
       </div>
 
@@ -397,7 +396,7 @@ export default function KnowledgePage() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={tab === "protocol" ? "搜索知识块内容 / 编号…" : tab === "operator" ? "搜索 ONNX 算子（如 conv2d / batchnorm）…" : "搜索 Paddle 源 API / 目标 API / Matcher…"}
+          placeholder={tab === "protocol" ? "搜索知识块内容 / 编号…" : tab === "operator" ? "搜索 ONNX 算子（如 conv2d / batchnorm）…" : "搜索 SemTrans PyTorch/Paddle 算子与公式…"}
           className="w-full rounded-lg border border-input bg-card py-2.5 pl-9 pr-3 text-[13px] outline-none transition-colors focus:border-primary/50"
         />
       </div>

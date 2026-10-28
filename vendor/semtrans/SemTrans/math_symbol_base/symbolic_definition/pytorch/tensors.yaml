@@ -1,0 +1,367 @@
+# ==========================================
+# Arithmetic Ops (Explicit Definition)
+# ==========================================
+
+Identity:
+  definition_type: operator
+  description: "PyTorch identity preserves its input tensor exactly."
+  math_symbol: "X"
+  output_shape:
+    - "Shape(X)"
+
+cat: &PyTorchCat
+  definition_type: operator
+  description: "Binary MathIR step for PyTorch torch.cat after generic associative decomposition."
+  math_symbol: "Concat(X1, X2, axis)"
+  param_map:
+    dim: axis
+  mechanisms:
+    - description: "Input ranks must match"
+      check: "Rank(X1) == Rank(X2)"
+    - description: "Concatenation axis must be in range"
+      check: "(axis >= -Rank(X1)) & (axis < Rank(X1))"
+
+concat: *PyTorchCat
+concatenate: *PyTorchCat
+
+Long:
+  definition_type: operator
+  description: "Tensor.long converts each element to signed 64-bit integer using PyTorch cast semantics."
+  math_symbol: "Cast(X, dtype)"
+  output_shape:
+    - "Shape(X)"
+  default_values:
+    dtype: int64
+
+transpose:
+  definition_type: operator
+  description: "Tensor.transpose swaps two dimensions while preserving all remaining dimension order."
+  math_symbol: "Transpose(X, make_swap_perm(Rank(X), dim0, dim1))"
+  param_map:
+    arg_1: dim0
+    arg_2: dim1
+
+squeeze:
+  definition_type: operator
+  description: "Tensor.squeeze removes all singleton dimensions, or one selected singleton dimension when dim is provided."
+  math_symbol: "Squeeze(X, dim)"
+  param_map:
+    arg_1: dim
+  default_values:
+    dim: all
+
+mean:
+  definition_type: operator
+  description: "Tensor.mean reduces one or more dimensions and optionally preserves reduced dimensions."
+  math_symbol: "ReduceMean(X, dim, keepdim)"
+  param_map:
+    dim: dim
+    keepdim: keepdim
+  default_values:
+    dim: all
+    keepdim: false
+
+Add:
+  definition_type: operator
+  description: "PyTorch Add: out = input + alpha * other (With implicit channel broadcast)"
+  math_symbol: >
+    Piecewise(
+      (
+        X1 + alpha * Reshape(X2, (1, Dim(X2, 0), 1, 1)), 
+        (Rank(X1) == 4) & (Rank(X2) == 1) & (Dim(X1, 1) == Dim(X2, 0))
+      ),
+      (X1 + alpha * X2, True)
+    )
+  param_map:
+    input: "X1"
+    other: "X2"
+    alpha: "alpha"
+  default_values:
+    alpha: 1
+
+Sub: &Sub
+  definition_type: operator
+  description: "PyTorch Sub: out = input - alpha * other"
+  math_symbol: "X1 - alpha * X2"
+  param_map:
+    input: "X1"
+    other: "X2"
+    alpha: "alpha"
+  default_values:
+    alpha: 1
+Subtract: *Sub
+
+Mul: &Mul
+  definition_type: operator
+  description: "PyTorch Mul: out = input * other"
+  math_symbol: "X1 * X2"
+  param_map:
+    input: "X1"
+    other: "X2"
+Multiply: *Mul
+
+Div: &Div
+  definition_type: operator
+  description: "PyTorch Div: out = input / other"
+  math_symbol: "X1 / X2"
+  param_map:
+    input: "X1"
+    other: "X2"
+Divide: *Div
+
+Pow:
+  definition_type: operator
+  math_symbol: "X1 ** X2"
+  param_map:
+    input: "X1"
+    other: "X2"
+
+Abs:
+  definition_type: operator
+  math_symbol: "Abs(X)"
+
+Exp:
+  definition_type: operator
+  math_symbol: "Exp(X)"
+
+Addcdiv:
+  definition_type: operator
+  description: "out = X1 + alpha * (X2 / X3)"
+  math_symbol: "X1 + alpha * (X2 / X3)"
+  param_map:
+    value: "alpha"
+  default_values:
+    value: 1
+
+Addcmul:
+  definition_type: operator
+  description: "out = X1 + alpha * (X2 * X3)"
+  math_symbol: "X1 + alpha * (X2 * X3)"
+  param_map:
+    value: "alpha"
+  default_values:
+    value: 1
+
+# ==========================================
+# Trigonometric & Hyperbolic Ops (Explicit)
+# ==========================================
+Log:
+  definition_type: operator
+  description: "Natural logarithm: out = log(x). Base e."
+  math_symbol: "Log(X)"
+  mechanisms:
+    - description: "Log domain: input must be positive"
+      check: "X > 0"
+
+Sin:
+  definition_type: operator
+  description: "Sine function: out = sin(x). Input in radians."
+  math_symbol: "Sin(X)"
+
+Cos:
+  definition_type: operator
+  description: "Cosine function: out = cos(x). Input in radians."
+  math_symbol: "Cos(X)"
+
+Acos: &acos
+  definition_type: operator
+  description: "Element-wise inverse cosine: out = arccos(x)"
+  math_symbol: "Acos(X)"
+  mechanisms:
+    - description: "Input range check"
+      check: "Abs(X) <= 1"
+Arccos: *acos
+
+Acosh: &acosh
+  definition_type: operator
+  description: "Element-wise inverse hyperbolic cosine: out = arccosh(x)"
+  math_symbol: "Acosh(X)"
+  mechanisms:
+    - description: "Domain check"
+      check: "X >= 1"
+Arccosh: *acosh
+
+Cosh: &cosh
+  definition_type: operator
+  description: "Element-wise hyperbolic cosine: out = cosh(x)"
+  math_symbol: "Cosh(X)"
+
+Ceil:
+  definition_type: operator
+  description: "Ceiling function: smallest integer >= x."
+  math_symbol: "ceiling(X)"
+
+Floor:
+  definition_type: operator
+  description: "Floor function: largest integer <= x."
+  math_symbol: "floor(X)"
+
+Round:
+  definition_type: operator
+  description: "Rounds elements to the nearest integer."
+  math_symbol: "Round(X)"
+
+Clamp: &clamp
+  definition_type: operator
+  description: "Clamps elements into the range [min, max]."
+  math_symbol: "Min(Max(X, min_val), max_val)"
+  param_map:
+    min: "min_val"
+    max: "max_val"
+  mechanisms:
+    - description: "Constraint validity check"
+      check: "min_val <= max_val"
+Clip: *clamp
+
+Trunc:
+  definition_type: operator
+  description: "Truncates the integer part (rounds towards zero)."
+  math_symbol: "Piecewise((ceiling(X), X < 0), (floor(X), True))"
+
+Frac:
+  definition_type: operator
+  description: "Fractional part: out = x - trunc(x)."
+  math_symbol: "X - Piecewise((ceiling(X), X < 0), (floor(X), True))"
+
+# ==========================================
+# Bitwise Ops (No Hyperparameters)
+# ==========================================
+
+Bitwise_not:
+  definition_type: operator
+  math_symbol: "BitwiseNot(X)"
+
+Bitwise_and:
+  definition_type: operator
+  math_symbol: "BitwiseAnd(X1, X2)"
+
+Bitwise_or:
+  definition_type: operator
+  math_symbol: "BitwiseOr(X1, X2)"
+
+Bitwise_xor:
+  definition_type: operator
+  math_symbol: "BitwiseXor(X1, X2)"
+
+
+# ==========================================
+# Comparison Ops (Explicit Definition)
+# ==========================================
+
+Eq:
+  definition_type: operator
+  description: "Element-wise equality."
+  math_symbol: "X1 == X2"
+
+Ne:
+  definition_type: operator
+  description: "Element-wise inequality."
+  math_symbol: "X1 != X2"
+
+Gt:
+  definition_type: operator
+  description: "Element-wise greater than."
+  math_symbol: "X1 > X2"
+
+Lt:
+  definition_type: operator
+  description: "Element-wise less than."
+  math_symbol: "X1 < X2"
+
+Ge:
+  definition_type: operator
+  description: "Greater than or equal."
+  math_symbol: "X1 >= X2"
+
+Le:
+  definition_type: operator
+  description: "Less than or equal."
+  math_symbol: "X1 <= X2"
+
+TensorUnfold:
+  description: "PyTorch Tensor.unfold for a rank-5 or rank-6 tensor; the window dimension is appended to the output."
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+      (X[n, c, d * step + k, h, w], (Rank(X) == 5) & (dimension == 2)),
+      (X[n, c, d, h * step + k, w], (Rank(X) == 5) & (dimension == 3)),
+      (X[n, c, d * step + k, h, w, l], (Rank(X) == 6) & (dimension == 2)),
+      (X[n, c, d, h * step + k, w, l], (Rank(X) == 6) & (dimension == 3))
+    )
+  output_shape:
+    - "Dim(X, 0)"
+    - "Dim(X, 1)"
+    - "Piecewise(((Dim(X, 2) - size) // step + 1, dimension == 2), (Dim(X, 2), True))"
+    - "Piecewise(((Dim(X, 3) - size) // step + 1, dimension == 3), (Dim(X, 3), True))"
+    - "Dim(X, 4)"
+    - "size"
+  param_map:
+    dimension: "dimension"
+    size: "size"
+    step: "step"
+  mechanisms:
+    - description: "Rank-5/6 verified domain"
+      check: "(Rank(X) == 5) | (Rank(X) == 6)"
+    - description: "Verified unfold dimension"
+      check: "(dimension == 2) | (dimension == 3)"
+    - description: "Positive window and step"
+      check: "(size > 0) & (step > 0)"
+    - description: "Window fits selected dimension"
+      check: "((dimension == 2) & (size <= Dim(X, 2))) | ((dimension == 3) & (size <= Dim(X, 3)))"
+
+# ==========================================
+# Reductions Ops
+# ==========================================
+Sum:
+  description: "Explicitly indexed Sum supporting standard NCDHW layout and all dimensions."
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+
+      (Sum(X[n, c, d, h, w], (n, 0, Dim(X, 0) - 1), (c, 0, Dim(X, 1) - 1), (d, 0, Dim(X, 2) - 1), (h, 0, Dim(X, 3) - 1), (w, 0, Dim(X, 4) - 1)), (Rank(X) == 5) & (dim == S_None)),
+      (Sum(X[n, c, h, w], (n, 0, Dim(X, 0) - 1), (c, 0, Dim(X, 1) - 1), (h, 0, Dim(X, 2) - 1), (w, 0, Dim(X, 3) - 1)), (Rank(X) == 4) & (dim == S_None)),
+      (Sum(X[n, c, l], (n, 0, Dim(X, 0) - 1), (c, 0, Dim(X, 1) - 1), (l, 0, Dim(X, 2) - 1)), (Rank(X) == 3) & (dim == S_None)),
+      (Sum(X[n, c], (n, 0, Dim(X, 0) - 1), (c, 0, Dim(X, 1) - 1)), (Rank(X) == 2) & (dim == S_None)),
+
+      # --- Rank 5: NCDHW ---
+      (Y[c, d, h, w] == Sum(X[n, c, d, h, w], (n, 0, Dim(X, 0) - 1)), (Rank(X) == 5) & ((dim == 0) | (dim == -5))),
+      (Y[n, d, h, w] == Sum(X[n, c, d, h, w], (c, 0, Dim(X, 1) - 1)), (Rank(X) == 5) & ((dim == 1) | (dim == -4))),
+      (Y[n, c, h, w] == Sum(X[n, c, d, h, w], (d, 0, Dim(X, 2) - 1)), (Rank(X) == 5) & ((dim == 2) | (dim == -3))),
+      (Y[n, c, d, w] == Sum(X[n, c, d, h, w], (h, 0, Dim(X, 3) - 1)), (Rank(X) == 5) & ((dim == 3) | (dim == -2))),
+      (Y[n, c, d, h] == Sum(X[n, c, d, h, w], (w, 0, Dim(X, 4) - 1)), (Rank(X) == 5) & ((dim == 4) | (dim == -1))),
+
+      # --- Rank 4: NCHW ---
+      (Y[c, h, w] == Sum(X[n, c, h, w], (n, 0, Dim(X, 0) - 1)), (Rank(X) == 4) & ((dim == 0) | (dim == -4))),
+      (Y[n, h, w] == Sum(X[n, c, h, w], (c, 0, Dim(X, 1) - 1)), (Rank(X) == 4) & ((dim == 1) | (dim == -3))),
+      (Y[n, c, w] == Sum(X[n, c, h, w], (h, 0, Dim(X, 2) - 1)), (Rank(X) == 4) & ((dim == 2) | (dim == -2))),
+      (Y[n, c, h] == Sum(X[n, c, h, w], (w, 0, Dim(X, 3) - 1)), (Rank(X) == 4) & ((dim == 3) | (dim == -1))),
+
+      # --- Rank 3: NCL ---
+      (Y[c, l] == Sum(X[n, c, l], (n, 0, Dim(X, 0) - 1)), (Rank(X) == 3) & ((dim == 0) | (dim == -3))),
+      (Y[n, l] == Sum(X[n, c, l], (c, 0, Dim(X, 1) - 1)), (Rank(X) == 3) & ((dim == 1) | (dim == -2))),
+      (Y[n, c] == Sum(X[n, c, l], (l, 0, Dim(X, 2) - 1)), (Rank(X) == 3) & ((dim == 2) | (dim == -1))),
+
+      # --- Rank 2: NC ---
+      (Y[c] == Sum(X[n, c], (n, 0, Dim(X, 0) - 1)), (Rank(X) == 2) & ((dim == 0) | (dim == -2))),
+      (Y[n] == Sum(X[n, c], (c, 0, Dim(X, 1) - 1)), (Rank(X) == 2) & ((dim == 1) | (dim == -1)))
+    )
+  param_map:
+    dim: "dim"
+    keepdim: "keepdim"
+
+MatMul:
+  definition_type: operator
+  description: "Matrix product with semantic indexing (N, C, D, H, W, K)."
+  math_symbol: >
+    Piecewise(
+      (Sum(X1[n, c, d, h, k] * X2[n, c, d, k, w], (k, 0, Dim(X1, -1) - 1)), (Rank(X1) == 5) & (Rank(X2) == 5)),
+      (Sum(X1[n, c, h, k] * X2[n, c, k, w], (k, 0, Dim(X1, -1) - 1)), (Rank(X1) == 4) & (Rank(X2) == 4)),
+      (Sum(X1[n, h, k] * X2[n, k, w], (k, 0, Dim(X1, -1) - 1)), (Rank(X1) == 3) & (Rank(X2) == 3)),
+      (Sum(X1[n, h, k] * X2[k, w], (k, 0, Dim(X1, -1) - 1)), (Rank(X1) == 3) & (Rank(X2) == 2)),
+      (Sum(X1[h, k] * X2[k, w], (k, 0, Dim(X1, -1) - 1)), (Rank(X1) == 2) & (Rank(X2) == 2))
+    )
+  mechanisms:
+    - description: "Inner dimension alignment"
+      check: "Dim(X1, -1) == Dim(X2, -2)"
+
+

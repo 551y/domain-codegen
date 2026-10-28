@@ -1,0 +1,18 @@
+{
+  "tiny_cnn": {
+    "label": "Test fixture TinyCNN",
+    "source_file": "tiny_cnn.py",
+    "class_name": "TinyCNN",
+    "input_shape": [1, 1, 8, 8],
+    "init_kwargs": {},
+    "input_dtype": "float32"
+  },
+  "tiny_avgpool": {
+    "label": "Test fixture TinyAvgPool",
+    "source_file": "tiny_avgpool.py",
+    "class_name": "TinyAvgPool",
+    "input_shape": [1, 1, 5, 5],
+    "init_kwargs": {},
+    "input_dtype": "float32"
+  }
+}

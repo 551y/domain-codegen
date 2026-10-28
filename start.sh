@@ -5,7 +5,7 @@
 #   编排后端  http://localhost:8200  (FastAPI，统一调度两套知识库流水线)
 #   统一前端  http://localhost:3200  (Next.js 生产构建)
 #
-# 引擎与数据自包含：vendor/herta（协议生成/评测引擎+知识库）、vendor/opalign（样例模型）、vendor/modelx（Paddle CMC 转换器）、vendor/onnx（ONNX 知识库）
+# 引擎与数据自包含：vendor/herta（协议生成/评测引擎+知识库）、vendor/opalign（样例模型）、vendor/semtrans（Paddle 语义验证）、vendor/onnx（ONNX 知识库）
 # 全程离线可用：无 LLM Key 时预置样例展示预生成结果；评测为本地真实计算。
 # ============================================================
 set -euo pipefail

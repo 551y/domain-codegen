@@ -1,0 +1,563 @@
+Identity:
+  definition_type: operator
+  description: "Paddle identity preserves its input tensor exactly."
+  math_symbol: "X"
+  output_shape:
+    - "Shape(X)"
+
+Shape:
+  definition_type: operator
+  description: "Returns the runtime tensor shape as an integer vector."
+  math_symbol: "Shape(X)"
+  output_shape:
+    - "Rank(X)"
+
+SquaredDifference:
+  definition_type: operator
+  description: "Elementwise squared difference with NumPy-style broadcasting."
+  math_symbol: "(X1 - X2) ** 2"
+
+UnsortedSegmentProd:
+  definition_type: operator
+  description: "Product reduction by unsorted non-negative segment identifiers."
+  math_symbol: "UnsortedSegmentProd(X, segment_ids, num_segments)"
+  semantic_shortcut: UnsortedSegmentProd
+
+Reverse:
+  definition_type: operator
+  description: "Reverses a tensor along one or more runtime-provided axes."
+  math_symbol: "Reverse(X, axis)"
+  semantic_shortcut: Reverse
+
+Range3:
+  definition_type: operator
+  description: "Builds a one-dimensional range from scalar start, limit, and delta."
+  math_symbol: "Range3(start, limit, delta)"
+  semantic_shortcut: Range3
+
+AddN:
+  definition_type: operator
+  description: "Elementwise sum over an artifact-provided tensor list."
+  math_symbol: "AddN(X1, ..., Xn)"
+  semantic_shortcut: AddN
+
+Fill:
+  definition_type: operator
+  description: "Creates a tensor with a runtime shape and scalar fill value."
+  math_symbol: "Fill(shape, value)"
+  semantic_shortcut: Fill
+
+L2Normalize:
+  definition_type: operator
+  description: "L2 normalization along the last dimension."
+  math_symbol: "L2Normalize(X, axis)"
+  semantic_shortcut: L2Normalize
+
+Real:
+  definition_type: operator
+  description: "Extracts the real component of a tensor."
+  math_symbol: "Real(X)"
+  semantic_shortcut: Real
+
+BatchToSpaceND:
+  definition_type: operator
+  description: "Moves block factors from the batch dimension into spatial dimensions and crops."
+  math_symbol: "BatchToSpaceND(X, block_shape, crops)"
+  semantic_shortcut: BatchToSpaceND
+
+SpaceToBatchND:
+  definition_type: operator
+  description: "Pads spatial dimensions and moves block factors into the batch dimension."
+  math_symbol: "SpaceToBatchND(X, block_shape, paddings)"
+  semantic_shortcut: SpaceToBatchND
+
+Square:
+  definition_type: operator
+  description: "Elementwise square."
+  math_symbol: "X ** 2"
+
+OneHot:
+  definition_type: operator
+  description: "One-hot expansion with runtime depth and on/off values."
+  math_symbol: "OneHot(indices, depth, on_value, off_value, axis)"
+  semantic_shortcut: OneHot
+
+ResizeNearestNeighbor:
+  definition_type: operator
+  description: "TFLite nearest-neighbor resize with explicit output size and coordinate options."
+  math_symbol: "ResizeNearestNeighbor(X, size, align_corners, half_pixel_centers)"
+  semantic_shortcut: ResizeNearestNeighbor
+
+ResizeBilinear:
+  definition_type: operator
+  description: "TFLite bilinear resize with explicit output size and coordinate options."
+  math_symbol: "ResizeBilinear(X, size, align_corners, half_pixel_centers)"
+  semantic_shortcut: ResizeBilinear
+
+FFT2D:
+  definition_type: operator
+  description: "Two-dimensional unnormalized complex FFT over the innermost axes."
+  math_symbol: "FFT2D(X)"
+  semantic_shortcut: FFT2D
+
+Expand:
+  definition_type: operator
+  description: "Paddle broadcast expansion to a tensor-valued shape."
+  math_symbol: "Expand(X, shape)"
+  param_map:
+    shape: shape
+  semantic_shortcut: Expand
+
+Zeros_like:
+  definition_type: operator
+  description: "Paddle zeros_like preserving shape and dtype."
+  math_symbol: "ZerosLike(X)"
+
+Scatter:
+  definition_type: operator
+  description: "Paddle indexed scatter with explicit overwrite attribute."
+  math_symbol: "Scatter(X, indices, updates, overwrite)"
+  param_map:
+    overwrite: overwrite
+  default_values:
+    overwrite: true
+
+Broadcast_to:
+  definition_type: operator
+  description: "Paddle broadcast_to with an explicit target shape."
+  math_symbol: "BroadcastTo(X, shape)"
+  param_map:
+    shape: shape
+  semantic_shortcut: BroadcastTo
+
+Take_along_axis:
+  definition_type: operator
+  description: "Paddle take_along_axis selection along an explicit axis."
+  math_symbol: "TakeAlongAxis(X, indices, axis)"
+  param_map:
+    axis: axis
+
+Argmax:
+  definition_type: operator
+  description: "Paddle argmax along an explicit axis."
+  math_symbol: "ArgMax(X, axis)"
+  param_map:
+    axis: axis
+  default_values:
+    axis: -1
+
+Logical_not:
+  definition_type: operator
+  description: "Paddle elementwise logical negation."
+  math_symbol: "Not(X)"
+
+Concat: &PaddleConcat
+  definition_type: operator
+  description: "Binary MathIR step for Paddle concat after generic associative decomposition."
+  math_symbol: "Concat(X1, X2, axis)"
+  param_map:
+    axis: axis
+  mechanisms:
+    - description: "Input ranks must match"
+      check: "Rank(X1) == Rank(X2)"
+    - description: "Concatenation axis must be in range"
+      check: "(axis >= -Rank(X1)) & (axis < Rank(X1))"
+
+concat: *PaddleConcat
+
+Cast: &Cast
+  definition_type: operator
+  description: "paddle.cast and Tensor.astype convert each element to the requested dtype."
+  math_symbol: "Cast(X, dtype)"
+  output_shape:
+    - "Shape(X)"
+  param_map:
+    arg_1: dtype
+  default_values:
+    arg_1: float32
+
+Astype: *Cast
+
+Reshape:
+  definition_type: operator
+  description: "Paddle reshape with a static or tensor-valued target shape."
+  math_symbol: "Reshape(X, target_shape)"
+  param_map:
+    shape: target_shape
+
+Gather:
+  definition_type: operator
+  description: "Paddle gather selects indices along one axis."
+  math_symbol: "Gather(X1, X2, axis)"
+  param_map:
+    axis: axis
+  default_values:
+    axis: 0
+
+Unsqueeze:
+  definition_type: operator
+  description: "Paddle unsqueeze inserts one or more singleton axes."
+  math_symbol: "ExpandDims(X, axis)"
+  param_map:
+    axis: axis
+
+Prod:
+  definition_type: operator
+  description: "Paddle product reduction."
+  math_symbol: "ReduceProd(X, axis, keepdim)"
+  param_map:
+    axis: axis
+    keepdim: keepdim
+  default_values:
+    axis: all
+    keepdim: false
+
+Neg:
+  definition_type: operator
+  description: "Paddle elementwise negation."
+  math_symbol: "-X"
+
+Sqrt:
+  definition_type: operator
+  description: "Paddle elementwise square root."
+  math_symbol: "Sqrt(X)"
+
+Reciprocal:
+  definition_type: operator
+  description: "Paddle elementwise reciprocal."
+  math_symbol: "1 / X"
+
+Sigmoid:
+  definition_type: operator
+  description: "Paddle elementwise sigmoid."
+  math_symbol: "1 / (1 + exp(-X))"
+  output_shape:
+    - "Shape(X)"
+
+Pow:
+  definition_type: operator
+  description: "Paddle elementwise exponentiation with broadcasting."
+  math_symbol: "X1 ** X2"
+  param_map:
+    x: X1
+    y: X2
+
+Max:
+  definition_type: operator
+  description: "Paddle maximum reduction over one or more axes."
+  math_symbol: "ReduceMax(X, axis, keepdim)"
+  param_map:
+    axis: axis
+    keepdim: keepdim
+  default_values:
+    axis: all
+    keepdim: false
+
+Pad2D:
+  definition_type: operator
+  description: "Paddle constant 2D padding for rank-4 tensors."
+  derived_variables:
+    paddings: >
+      Piecewise(
+        (Tuple(Tuple(0, 0), Tuple(0, 0), Tuple(GetItem(pad, 2), GetItem(pad, 3)), Tuple(GetItem(pad, 0), GetItem(pad, 1))), data_format == 'channels_first'),
+        (Tuple(Tuple(0, 0), Tuple(GetItem(pad, 2), GetItem(pad, 3)), Tuple(GetItem(pad, 0), GetItem(pad, 1)), Tuple(0, 0)), True)
+      )
+  math_symbol: "Pad(X, paddings, value)"
+  param_map:
+    pad: pad
+    mode: mode
+    value: value
+    data_format: data_format
+  default_values:
+    mode: constant
+    value: 0
+    data_format: channels_first
+  mechanisms:
+    - description: "Only constant padding has this formula"
+      check: "mode == 'constant'"
+    - description: "Pad2D requires rank four"
+      check: "Rank(X) == 4"
+
+Split:
+  definition_type: operator
+  description: "Paddle equal or explicit-section split along one axis."
+  math_symbol: "SplitV(X, size_splits, axis)"
+  param_map:
+    size_splits: size_splits
+    axis: axis
+  default_values:
+    size_splits: []
+    axis: 0
+
+Tile:
+  definition_type: operator
+  description: "Paddle tile repeats the tensor along each configured dimension."
+  math_symbol: "Tile(X, repeat_times)"
+  param_map:
+    repeat_times: repeat_times
+
+Maximum:
+  definition_type: operator
+  description: "Paddle elementwise maximum."
+  math_symbol: "Max(X1, X2)"
+
+Softmax:
+  definition_type: operator
+  description: "Paddle softmax along one axis."
+  math_symbol: "Softmax(X, axis)"
+  param_map:
+    axis: axis
+  default_values:
+    axis: -1
+
+Erf:
+  definition_type: operator
+  description: "Paddle elementwise error function."
+  math_symbol: "Erf(X)"
+
+Einsum:
+  definition_type: operator
+  description: "Paddle Einstein summation with an explicit equation."
+  math_symbol: "Einsum(X1, X2, equation)"
+  param_map:
+    equation: equation
+
+Slice:
+  definition_type: operator
+  description: "Paddle slice over explicit axes, starts, and ends."
+  math_symbol: "Slice(X, axes, starts, ends)"
+  param_map:
+    axes: axes
+    starts: starts
+    ends: ends
+
+Strided_slice:
+  definition_type: operator
+  description: "Paddle strided slice with explicit per-axis bounds."
+  math_symbol: "StridedSlice(X, starts, ends, strides)"
+  param_map:
+    starts: starts
+    ends: ends
+    strides: strides
+
+Transpose:
+  definition_type: operator
+  description: "Paddle transpose permutes tensor dimensions according to perm."
+  math_symbol: "Transpose(X, perm)"
+  param_map:
+    perm: perm
+
+Squeeze: &PaddleSqueeze
+  definition_type: operator
+  description: "Paddle squeeze removes singleton dimensions, or the selected singleton axis/axes."
+  math_symbol: "Squeeze(X, axis)"
+  param_map:
+    axis: axis
+  default_values:
+    axis: all
+
+squeeze: *PaddleSqueeze
+
+Mean: &PaddleMean
+  definition_type: operator
+  description: "Paddle mean reduces one or more axes and optionally preserves reduced dimensions."
+  math_symbol: "ReduceMean(X, axis, keepdim)"
+  param_map:
+    axis: axis
+    keepdim: keepdim
+  default_values:
+    axis: all
+    keepdim: false
+
+mean: *PaddleMean
+
+Add:
+  definition_type: operator
+  description: "Paddle Add"
+  math_symbol: "X1 + X2"
+  param_map:
+    x: "X1"
+    y: "X2"
+
+Subtract:
+  definition_type: operator
+  description: "Paddle Subtract"
+  math_symbol: "X1 - X2"
+  param_map:
+    x: "X1"
+    y: "X2"
+
+Multiply:
+  definition_type: operator
+  description: "Paddle Multiply"
+  math_symbol: "X1 * X2"
+  param_map:
+    x: "X1"
+    y: "X2"
+
+Divide:
+  definition_type: operator
+  description: "Paddle Divide"
+  math_symbol: "X1 / X2"
+  param_map:
+    x: "X1"
+    y: "X2"
+
+Rsqrt:
+  definition_type: operator
+  description: "TFLite reciprocal square root"
+  math_symbol: "1 / Sqrt(X)"
+  output_shape:
+    - "Shape(X)"
+
+Pad:
+  definition_type: operator
+  description: "TFLite explicit padding with a constant value"
+  math_symbol: "Pad(X, paddings, value)"
+  param_map:
+    paddings: paddings
+    value: value
+
+Interpolate:
+  definition_type: operator
+  description: "Paddle 2D interpolation with explicit coordinate and layout semantics."
+  math_symbol: "Resize2D(X, scale_factor, mode, align_corners, align_mode, data_format)"
+  param_map:
+    scale_factor: scale_factor
+    mode: mode
+    align_corners: align_corners
+    align_mode: align_mode
+    data_format: data_format
+  default_values:
+    mode: nearest
+    align_corners: false
+    align_mode: 0
+    data_format: channels_first
+
+Clip:
+  definition_type: operator
+  description: "Paddle clip with tensor or scalar bounds."
+  math_symbol: "Clip(X, min_value, max_value)"
+  param_map:
+    min_value: min_value
+    max_value: max_value
+
+Cumsum:
+  definition_type: operator
+  description: "Paddle cumulative sum along a configured axis."
+  math_symbol: "Cumsum(X, axis)"
+  param_map:
+    axis: axis
+
+Sum:
+  definition_type: operator
+  description: "Paddle reduction sum with explicit axis and keepdim."
+  math_symbol: "ReduceSum(X, axis, keepdim)"
+  param_map:
+    axis: axis
+    keepdim: keepdim
+
+# ==============================================================================
+# Paddle Matrix Multiplication (With Transpose Attributes)
+# ==============================================================================
+Matmul:
+  definition_type: operator
+  description: "Paddle Matmul"
+  derived_variables:
+    A: Piecewise((Transpose(X1, make_swap_perm(Rank(X1), -1, -2)), trans_x), (X1, True))
+    B: Piecewise((Transpose(X2, make_swap_perm(Rank(X2), -1, -2)), trans_y), (X2, True))
+  math_symbol: >
+    Piecewise(
+      (Sum(A[n, c, h, k] * B[n, c, k, w], (k, 0, Dim(A, -1) - 1)), (Rank(A) == 4) & (Rank(B) == 4)),
+      (Sum(A[n, h, k] * B[n, k, w], (k, 0, Dim(A, -1) - 1)), (Rank(A) == 3) & (Rank(B) == 3)),
+      (Sum(A[n, h, k] * B[k, w], (k, 0, Dim(A, -1) - 1)), (Rank(A) == 3) & (Rank(B) == 2)),
+      (Sum(A[h, k] * B[k, w], (k, 0, Dim(A, -1) - 1)), (Rank(A) == 2) & (Rank(B) == 2)),
+      (MatMul(A, B), True)
+    )
+  param_map:
+    x: "X1"
+    y: "X2"
+    transpose_x: "trans_x"
+    transpose_y: "trans_y"
+  mechanisms:
+    - description: "Inner Dimension Alignment"
+      check: "Dim(A, -1) == Dim(B, -2)"
+
+# ==============================================================================
+# Paddle Comparison Ops
+# ==============================================================================
+Equal:
+  definition_type: operator
+  math_symbol: "X1 == X2"
+  param_map:
+    x: "X1"
+    y: "X2"
+
+NotEqual:
+  definition_type: operator
+  math_symbol: "X1 != X2"
+  param_map:
+    x: "X1"
+    y: "X2"
+
+GreaterThan:
+  definition_type: operator
+  math_symbol: "X1 > X2"
+  param_map:
+    x: "X1"
+    y: "X2"
+
+LessThan:
+  definition_type: operator
+  math_symbol: "X1 < X2"
+  param_map:
+    x: "X1"
+    y: "X2"
+
+GreaterEqual:
+  definition_type: operator
+  description: "Elementwise greater-than-or-equal comparison with NumPy broadcasting."
+  math_symbol: "X1 >= X2"
+  semantic_shortcut: GreaterEqual
+  param_map:
+    x: "X1"
+    y: "X2"
+
+LessEqual:
+  definition_type: operator
+  description: "Elementwise less-than-or-equal comparison with NumPy broadcasting."
+  math_symbol: "X1 <= X2"
+  semantic_shortcut: LessEqual
+  param_map:
+    x: "X1"
+    y: "X2"
+
+TFLiteEmbeddingLookup:
+  definition_type: operator
+  description: "TFLite EMBEDDING_LOOKUP consumes indices before the embedding table."
+  math_symbol: "EmbeddingLookup(X2, X1, -1)"
+  semantic_shortcut: TFLiteEmbeddingLookup
+
+# ==============================================================================
+# Paddle Logical & Bitwise Ops
+# ==============================================================================
+LogicalAnd:
+  definition_type: operator
+  math_symbol: "X1 & X2"
+  param_map:
+    x: "X1"
+    y: "X2"
+
+BitwiseAnd:
+  definition_type: operator
+  math_symbol: "BitwiseAnd(X1, X2)"
+  param_map:
+    x: "X1"
+    y: "X2"
+
+BitwiseOr:
+  definition_type: operator
+  math_symbol: "BitwiseOr(X1, X2)"
+  param_map:
+    x: "X1"
+    y: "X2"

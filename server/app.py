@@ -3,12 +3,14 @@
 
 一个后端统一编排两套知识库的代码生成流水线：
   - 入口一（星务协议知识库）：协议文档 → 检索增强 → LLM 生成 config/handler → 本地评测
-  - 入口二（模型部署适配，ONNX 知识库与 Paddle 映射规则独立维护）：
+  - 入口二（模型部署适配，ONNX 知识库与 SemTrans 语义定义独立维护）：
       PyTorch→ONNX：BM25 检索 → LLM 生成导出代码 → 子进程真实执行导出（产出可下载的单文件 .onnx）
-      PyTorch→Paddle：AST/规则转换 → 迁移彻底性/结构评测 → Paddle 冒烟检查
+      PyTorch→Paddle：SemTrans LLM 初始候选 → SemTrans-JIT 区域语义对齐 → 定向修复与独立复验
 
 引擎复用：herta（LLM 生成与评测）、opalign（样例模型）。本文件只做编排与演示适配。
 """
+
+from __future__ import annotations
 
 import ast
 import hashlib
@@ -32,9 +34,23 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 try:
-    from paddle_converter import ConversionResult, convert_pytorch_source, paddle_demo_cases, run_paddle_smoke_test
+    from semtrans_llm import ModelServiceError, OpenAICompatibleClient
+    from semtrans_service import SemTransWorkerError, run_semtrans_worker
+    from provider_settings import (
+        DEFAULT_BASE_URL as DEFAULT_MODEL_BASE_URL,
+        get_provider_settings, public_provider_settings, restore_provider_settings_to_env,
+        save_provider_settings,
+    )
 except ModuleNotFoundError:  # importing as ``server.app`` in tests/tools
-    from server.paddle_converter import ConversionResult, convert_pytorch_source, paddle_demo_cases, run_paddle_smoke_test
+    from server.semtrans_llm import ModelServiceError, OpenAICompatibleClient
+    from server.semtrans_service import SemTransWorkerError, run_semtrans_worker
+    from server.provider_settings import (
+        DEFAULT_BASE_URL as DEFAULT_MODEL_BASE_URL,
+        get_provider_settings, public_provider_settings, restore_provider_settings_to_env,
+        save_provider_settings,
+    )
+
+restore_provider_settings_to_env()
 
 # ---------------------------------------------------------------------------
 # 路径与常量
@@ -55,8 +71,10 @@ HERTA_PRE_GEN = HERTA_ROOT / "output" / "generated"
 OPALIGN_MODELS = OPALIGN_ROOT / "EVALUATION" / "datasets" / "models"
 ONNX_DATASET = VENDOR_DIR / "onnx" / "dataset.expanded.jsonl"
 ONNX_PRESET_DIR = PLATFORM_ROOT / "server" / "preset_onnx"
-PADDLE_PRESET_DIR = PLATFORM_ROOT / "server" / "preset_paddle"
-PADDLE_DATASET = VENDOR_DIR / "modelx" / "paddle_dataset_view.json"
+SEMTRANS_PRESET_DIR = PLATFORM_ROOT / "server" / "preset_semtrans"
+PADDLE_DATASET = VENDOR_DIR / "semtrans" / "paddle_dataset_view.json"
+SEMTRANS_CASES_PATH = Path(__file__).with_name("semtrans_demo_cases.json")
+SEMTRANS_REQUIREMENTS = VENDOR_DIR / "semtrans" / "requirements.txt"
 
 for d in (UPLOAD_DIR, GEN_DIR):
     d.mkdir(parents=True, exist_ok=True)
@@ -184,13 +202,14 @@ def _live_sink(task_id: str, keys: list, stage_names: list, on_begin=None):
 
 def _llm_available() -> bool:
     try:
-        from herta.config import get_settings
-        s = get_settings()
-        key = s.effective_chat_key() or ""
-        return bool(key) and key != "offline-demo-placeholder"
+        settings = get_provider_settings()
+        key = settings.get("api_key", "")
+        key_type = settings.get("api_key_type", "unclassified" if key else "standard")
+        return bool(key) and key != "offline-demo-placeholder" and key_type not in {"coding_plan", "unclassified"}
     except Exception:
-        key = os.environ.get("ZAI_API_KEY", "")
-        return bool(key) and key != "offline-demo-placeholder"
+        key = os.environ.get("HERTA_CHAT_API_KEY") or os.environ.get("ZAI_API_KEY", "")
+        key_type = os.environ.get("DOMAINCODEGEN_API_KEY_TYPE", "unclassified" if key else "standard")
+        return bool(key) and key != "offline-demo-placeholder" and key_type not in {"coding_plan", "unclassified"}
 
 
 def _safe_name(name: str) -> str:
@@ -634,7 +653,6 @@ def list_kbs():
 
 def _vision_samples(preset_dir: Path, preset_suffix: str) -> list:
     """视觉骨干样例列表（PyTorch 源码 + 预置产物标记）"""
-    paddle_cases = paddle_demo_cases() if preset_suffix == "_to_paddle.py" else {}
     out = []
     for fw_dir in [OPALIGN_MODELS / "pytorch"]:
         if not fw_dir.exists():
@@ -651,10 +669,6 @@ def _vision_samples(preset_dir: Path, preset_suffix: str) -> list:
                 name = entry.stem if entry.is_file() else entry.name
                 if name == "__init__" or name in seen:
                     continue
-                # Paddle 只列出已配置并实测的模型：多文件包源码（convnext/efficientnet/
-                # mobilenet）暂不支持转换，不再给出必失败的入口；ONNX 侧 12 个全保留
-                if paddle_cases and name not in paddle_cases:
-                    continue
                 seen.add(name)
                 item = {
                     "name": name, "domain": domain_dir.name,
@@ -662,13 +676,26 @@ def _vision_samples(preset_dir: Path, preset_suffix: str) -> list:
                     "label": f"{name}（{domain_dir.name}）",
                     "pre_generated": (preset_dir / f"{name}{preset_suffix}").exists(),
                 }
-                if name in paddle_cases:
-                    item["demo_label"] = paddle_cases[name]["label"]
-                    item["demo_available"] = True
-                    if paddle_cases[name].get("modelx_variant"):
-                        item["modelx_variant"] = paddle_cases[name]["modelx_variant"]
                 out.append(item)
     return out
+
+
+def _semtrans_samples() -> list:
+    """Only list source profiles explicitly configured for SemTrans frontend validation."""
+    cases = json.loads(SEMTRANS_CASES_PATH.read_text(encoding="utf-8"))
+    return [
+        {
+            "name": name,
+            "id": f"semtrans/{name}",
+            "label": profile["label"],
+            "pre_generated": False,
+            "demo_available": True,
+            "demo_label": profile["label"],
+            "semantics_demo": bool(profile.get("fault_injection")),
+            "support_note": profile.get("support_note", ""),
+        }
+        for name, profile in cases.items()
+    ]
 
 
 @app.get("/api/samples")
@@ -689,7 +716,7 @@ def list_samples(kb: str):
     if kb == "operator":
         return {"samples": _vision_samples(ONNX_PRESET_DIR, "_to_onnx.py")}
     if kb == "paddle":
-        return {"samples": _vision_samples(PADDLE_PRESET_DIR, "_to_paddle.py")}
+        return {"samples": _semtrans_samples()}
     raise HTTPException(status_code=400, detail="未知知识库")
 
 
@@ -729,6 +756,7 @@ class GenerateRequest(BaseModel):
     source: str                   # 样例名 或 upload_id
     mode: str = "sample"          # sample | upload
     top_k: int = 30
+    profile: Optional[dict] = None
 
 
 @app.post("/api/generate")
@@ -739,7 +767,7 @@ def generate(req: GenerateRequest):
     elif req.kb == "operator":
         target = _run_operator
     elif req.kb == "paddle":
-        target = _run_paddle
+        target = _run_semtrans
     else:
         raise HTTPException(status_code=400, detail="未知知识库")
     threading.Thread(target=target, args=(task_id, req), daemon=True).start()
@@ -1486,329 +1514,212 @@ def _run_operator(task_id: str, req: GenerateRequest):
 
 # ---------------------------------------------------------------------------
 # 入口二 · Paddle 目标：PyTorch → PaddlePaddle 跨框架转换
-# （转换使用自带映射规则；ONNX 知识检索只作参考展示）
+# SemTrans 使用其独立数学定义、frontend 与区域语义对齐器；模型服务凭据单独管理。
 # ---------------------------------------------------------------------------
 
-def _code_without_comments(src: str) -> str:
-    """剥离注释（评测 torch 残留用，避免「torch.cat → paddle.concat」这类对齐注释误判）"""
+def _run_semtrans(task_id: str, req: GenerateRequest):
+    """Run real SemTrans generation/alignment/repair in a task-isolated Python worker."""
+    stage_list: list[dict] = []
+
+    def finish_running_stages(error: str) -> None:
+        """Never leave the UI showing a live stage after its task has failed."""
+        changed = False
+        for stage in stage_list:
+            if stage.get("status") in {"pending", "running"}:
+                stage["status"] = "failed"
+                stage["detail"] = error[:500]
+                changed = True
+        if not changed:
+            stage_list.append({"name": "SemTrans 任务", "status": "failed", "detail": error[:500]})
+        _task_intermediate(task_id, evaluation_steps=[dict(item) for item in stage_list])
+
     try:
-        toks = (t for t in tokenize.generate_tokens(io.StringIO(src).readline)
-                if t.type != tokenize.COMMENT)
-        return tokenize.untokenize(toks)
-    except Exception:
-        return src
-
-
-def _eval_paddle(
-    gen_code: str,
-    analysis: dict,
-    retrieved: list,
-    source_text: str = "",
-    conversion: Optional[ConversionResult] = None,
-    runtime: Optional[dict] = None,
-    companion_files: Optional[dict] = None,
-) -> dict:
-    """评测 Paddle 产物。
-
-    评测口径与 ONNX 路线保持一致：静态检查项单独列出，连续程度指标
-    放在 scores 中；如果 Paddle 安装可用，再执行一次导入和 dummy 前向冒烟。
-    """
-    try:
-        ast.parse(gen_code)
-        syntax_valid = True
-    except SyntaxError:
-        syntax_valid = False
-
-    code_only = _code_without_comments(gen_code)
-    uses_paddle = bool(re.search(r"(?m)^\s*(import|from)\s+paddle\b", code_only))
-    torch_residue = bool(
-        re.search(r"(?m)^\s*(import|from)\s+torch\b", code_only)
-        or re.search(r"(?<![\w.])torch\.", code_only)
-    )
-    has_layer = bool(re.search(r"(?:paddle\.)?nn\.Layer\b", code_only))
-    has_forward = "def forward" in code_only
-    wrappers = len(re.findall(r"class\s+Modified_\w+", code_only))
-
-    scores = {}
-    companion_files = conversion.extra_files if conversion is not None else companion_files or {}
-    # 通过/失败型检查项
-    checks = {
-        "语法合法": syntax_valid,
-        "引入 paddle": uses_paddle,
-        "无 torch 残留": not torch_residue,
-        "网络结构完整（nn.Layer + forward）": has_layer and has_forward,
-    }
-
-    runtime = runtime or {"attempted": False}
-    if runtime.get("attempted"):
-        checks["Paddle 模块导入成功"] = bool(runtime.get("import_ok"))
-        if runtime.get("construction_attempted"):
-            checks["Paddle 模型构造成功"] = bool(runtime.get("construction_ok"))
-        if runtime.get("forward_attempted"):
-            checks["Paddle dummy 前向成功"] = bool(runtime.get("forward_ok"))
-        if runtime.get("error"):
-            checks["Paddle 运行时检查无异常"] = False
-
-    if conversion is not None:
-        # 转换器的 API 迁移统计是工具实际返回的计数，不把它伪装成
-        # 代码相似度；与 ONNX 的导出/校验检查一样，在界面上单独展示。
-        checks["转换器产出代码"] = bool(gen_code.strip())
-        checks["API 全部转换"] = conversion.failed_api_count == 0
-        scores["API 转换成功率"] = conversion.api_success_rate
-    if companion_files:
-        companion_syntax_ok = True
-        for filename, content in companion_files.items():
-            try:
-                ast.parse(content, filename=filename)
-            except SyntaxError:
-                companion_syntax_ok = False
-        checks["伴随 Python 模块语法合法"] = companion_syntax_ok
-        wrappers += sum(len(re.findall(r"class\s+Modified_\w+", text))
-                        for text in companion_files.values())
-
-    # 结构对齐（静态指标，无需 paddle 运行时）：
-    # 主类名一致 / 层构造数量对齐 / forward 中 self.* 调用序列相似度
-    if source_text:
-        src_classes = re.findall(r"class\s+(\w+)\s*\(\s*(?:(?:torch\.)?nn)\.Module\s*\)", source_text)
-        gen_classes = set(re.findall(r"class\s+(\w+)\s*\(\s*(?:(?:paddle\.)?nn\.)?Layer\s*\)", code_only))
-        if src_classes:
-            preserved = sum(1 for c in src_classes if c in gen_classes)
-            scores["类结构对齐"] = round(preserved / len(src_classes) * 100, 1)
-
-        src_layers = re.findall(r"(?:(?:torch\.)?nn)\.([A-Z]\w*)\s*\(", source_text)
-        gen_layers = re.findall(r"(?:(?:paddle\.)?nn)\.([A-Z]\w*)\s*\(", code_only)
-        if src_layers and gen_layers:
-            scores["层数量对齐"] = round(min(len(src_layers), len(gen_layers))
-                                       / max(len(src_layers), len(gen_layers)) * 100, 1)
-
-        def _forward_calls(code: str) -> list:
-            try:
-                tree = ast.parse(code)
-            except SyntaxError:
-                return []
-            calls = []
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ClassDef):
-                    for item in node.body:
-                        if isinstance(item, (ast.FunctionDef,)) and item.name == "forward":
-                            for sub in ast.walk(item):
-                                if (isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
-                                        and isinstance(sub.func.value, ast.Name) and sub.func.value.id == "self"):
-                                    calls.append(sub.func.attr)
-            return calls
-
-        src_seq, gen_seq = _forward_calls(source_text), _forward_calls(code_only)
-        if src_seq and gen_seq:
-            import difflib
-            scores["forward 调用对齐"] = round(
-                difflib.SequenceMatcher(None, src_seq, gen_seq).ratio() * 100, 1)
-
-    evaluation = {
-        "kind": "paddle",
-        "scores": scores,
-        "checks": checks,
-        "syntax_valid": syntax_valid,
-        "uses_paddle": uses_paddle,
-        "torch_residue": torch_residue,
-        "custom_wrappers": wrappers,
-        "total_calls": analysis["total_calls"],
-        "retrieved_count": len(retrieved),
-        "retrieved": [
-            {"title": r["title"], "category_label": r["category_label"], "score": r["score"], "source": r["source"]}
-            for r in retrieved
-        ],
-    }
-    if conversion is not None:
-        evaluation["stats"] = {
-            "转换器": conversion.converter,
-            "源文件": Path(conversion.source_file).name,
-            "成功转换 API": conversion.success_api_count,
-            "未支持 API": conversion.failed_api_count,
-        }
-        if conversion.unsupported:
-            evaluation["unsupported_apis"] = conversion.unsupported
-        evaluation["compatibility_fixes"] = conversion.compatibility_fixes
-    evaluation["library_modifications"] = [
-        {"file": filename, "level": "Python underlying library",
-         "classes": re.findall(r"class\s+(Modified_\w+)", content)}
-        for filename, content in companion_files.items()
-        if Path(filename).name.startswith("modified_")
-    ]
-    evaluation.setdefault("stats", {})["伴随模块"] = len(companion_files)
-    if runtime.get("class_name"):
-        evaluation.setdefault("stats", {})["主模型类"] = runtime["class_name"]
-    if runtime.get("params") is not None:
-        evaluation.setdefault("stats", {})["参数量"] = f"{runtime['params'] / 1e6:.2f} M"
-    evaluation["paddle_runtime"] = runtime
-    if runtime.get("attempted"):
-        if runtime.get("output_shape_ok") is not None:
-            checks["输出形状符合样例约定"] = bool(runtime["output_shape_ok"])
-        if runtime.get("forward_attempted") and runtime.get("finite") is not None:
-            checks["输出不含 NaN/Inf"] = bool(runtime["finite"])
-        if runtime.get("error"):
-            evaluation["note"] = runtime["error"]
-        elif runtime.get("skip_reason"):
-            evaluation["note"] = runtime["skip_reason"]
-    else:
-        evaluation["note"] = runtime.get("skip_reason") or "未执行 Paddle 运行时检查；已完成静态迁移评测。"
-    return evaluation
-
-
-def _run_paddle(task_id: str, req: GenerateRequest):
-    try:
-        _task_update(task_id, status="running", progress=5, stage=0, message="解析模型源码…")
-        src, name, preset_file = _locate_torch_source(req, PADDLE_PRESET_DIR, "_to_paddle.py")
-        profile = paddle_demo_cases().get(name) if req.mode == "sample" else None
-
-        if src.is_dir():
-            texts = [p.read_text(encoding="utf-8", errors="replace") for p in sorted(src.rglob("*.py"))]
-            source_text = "\n\n".join(texts)
+        _task_update(task_id, status="running", progress=5, stage=0, message="解析 PyTorch 输入与 SemTrans profile…")
+        cases = json.loads(SEMTRANS_CASES_PATH.read_text(encoding="utf-8"))
+        if req.mode == "sample":
+            case_name = req.source.rsplit("/", 1)[-1]
+            if case_name not in cases:
+                raise RuntimeError("该 PyTorch 样例尚无经过 SemTrans frontend 核实的输入 profile")
+            profile = dict(cases[case_name])
+            if profile.get("source_path"):
+                source_path = (PLATFORM_ROOT / profile["source_path"]).resolve()
+            else:
+                source_path = SEMTRANS_PRESET_DIR / profile["source_file"]
+            if not source_path.is_file():
+                source_path = Path(__file__).parent / "preset_semtrans" / profile["source_file"]
+            source_label = profile["label"]
         else:
-            source_text = src.read_text(encoding="utf-8", errors="replace")
-
-        _task_update(task_id, progress=20, stage=1, message="检索模型部署适配知识库…")
-        analysis = _analyze_source(source_text)
-        leaf_ops = sorted({c.split(".")[-1] for c in analysis["calls"]})
-        # 与 ONNX 目标共用同一数据集，仅用于工作台展示相关算子知识；
-        # 转换器本身使用内置 AST/规则映射，不读取 LLM 或该检索结果。
-        query = f"{name} PyTorch Paddle 转换 算子映射 " + " ".join(leaf_ops[:12])
-        retrieved = _onnx_retrieve(query, top_k=8)
+            if not req.profile:
+                raise RuntimeError("上传模型需要填写 SemTrans profile：模型类、输入形状及构造参数")
+            profile = dict(req.profile)
+            required = ("class_name", "input_shape")
+            if any(key not in profile for key in required):
+                raise RuntimeError("SemTrans profile 缺少模型类或输入形状")
+            src, source_label, _ = _locate_torch_source(req, SEMTRANS_PRESET_DIR, "_to_paddle.py")
+            source_path = src
+        source_text = source_path.read_text(encoding="utf-8", errors="replace")
         _task_intermediate(
             task_id,
-            operators={"total_calls": analysis["total_calls"], "leaf_ops": leaf_ops},
-            retrieved=[{"title": r["title"], "category_label": r["category_label"],
-                        "score": r["score"], "source": r["source"]} for r in retrieved],
+            parsed={"模型": profile.get("label", source_label), "源文件": source_path.name,
+                    "主类": profile["class_name"], "输入形状": profile["input_shape"]},
+            gen_mode="SemTrans 初始候选生成 + 数学语义对齐 + 定向修复/复验",
         )
 
-        out_dir = GEN_DIR / task_id
-        out_dir.mkdir(parents=True, exist_ok=True)
-        conversion: Optional[ConversionResult] = None
-        extra_files = {}
-        modelx_fallback_reason: Optional[str] = None
-        pre_generated = False
-        modelx_dir = out_dir / "modelx"
-        _task_update(task_id, progress=45, stage=2, message="运行源码级规则转换…")
-        # 该转换为确定性的源码级 AST/规则转换，不依赖 LLM。
-        try:
-            conversion = convert_pytorch_source(src, modelx_dir)
-            gen_code = conversion.code
-            extra_files = conversion.extra_files
-            _task_intermediate(
-                task_id,
-                gen_mode="源码级规则转换（确定性）",
-                conversion_stats={
-                    "success": conversion.success_api_count,
-                    "failed": conversion.failed_api_count,
-                    "rate": conversion.api_success_rate,
-                },
+        llm_settings = get_provider_settings()
+        api_key = llm_settings.get("api_key", "")
+        key_type = llm_settings.get("api_key_type", "unclassified" if api_key else "standard")
+        if not api_key:
+            raise RuntimeError("请先在右上角“LLM 设置”中配置共享模型服务 API Key")
+        if key_type == "coding_plan":
+            raise RuntimeError(
+                "智谱官方将 Coding Plan 限定用于指定工具；本平台是自建网页，不能在此直连套餐 Key。"
+                "请在官方支持的 ZCode 客户端使用该套餐，或在右上角“LLM 设置”配置普通标准 API Key。"
             )
-        except (ModuleNotFoundError, ImportError) as modelx_error:
-            if req.mode == "sample" and preset_file:
-                # 预置样例保留离线回放兜底；在安装转换依赖的环境中，
-                # 同一个样例会优先展示真实转换产物。
-                pre_generated = True
-                modelx_fallback_reason = str(modelx_error)
-                _task_update(task_id, progress=45, stage=2, message="转换依赖不可用，载入预生成 Paddle 转换产物…")
-                _task_intermediate(task_id, gen_mode="预生成回放（转换依赖缺失时的离线兜底）")
-                gen_code = preset_file.read_text(encoding="utf-8", errors="replace")
-                companion_dir = PADDLE_PRESET_DIR / name
-                extra_files = {
-                    p.relative_to(companion_dir).as_posix(): p.read_text(encoding="utf-8")
-                    for p in sorted(companion_dir.rglob("*.py"))
-                } if companion_dir.exists() else {}
-                time.sleep(0.5)
-            else:
-                raise RuntimeError(
-                    "源码转换失败：%s。请按 README 安装 Paddle 转换依赖后重试。" % modelx_error
-                ) from modelx_error
-
-        evaluation_steps = [
-            {
-                "name": "源码级转换",
-                "status": ("failed" if conversion.failed_api_count else "passed") if conversion is not None else "skipped",
-                "detail": (
-                    f"{conversion.success_api_count} 个 API 成功，{conversion.failed_api_count} 个未支持"
-                    if conversion is not None else "使用预生成离线产物"
-                ),
-            },
-            {"name": "Paddle 导入与 dummy 前向", "status": "pending"},
-            {"name": "语法/迁移/结构静态评测", "status": "pending"},
-        ]
-        _task_intermediate(task_id, evaluation_steps=evaluation_steps)
-        script_path = out_dir / f"{name}_to_paddle.py"
-        # Execute the same multi-file artifact shown in the UI, preserving the
-        # relative imports emitted by the converter. The smoke runner loads a package.
-        script_path.write_text(gen_code, encoding="utf-8")
-        for relative_name, content in extra_files.items():
-            companion = out_dir / relative_name
-            companion.parent.mkdir(parents=True, exist_ok=True)
-            companion.write_text(content, encoding="utf-8")
-        _task_update(task_id, progress=75, stage=2, message="执行 Paddle 产物导入与 dummy 前向检查…")
-        evaluation_steps[1] = {"name": "Paddle 导入与 dummy 前向", "status": "running"}
-        _task_intermediate(task_id, evaluation_steps=evaluation_steps)
-        runtime = run_paddle_smoke_test(script_path, profile=profile)
-
-        if runtime.get("attempted") and runtime.get("error"):
-            runtime_status = "failed"
-            runtime_detail = runtime["error"]
-        elif runtime.get("attempted") and runtime.get("import_ok"):
-            if runtime.get("forward_attempted"):
-                runtime_status = "passed" if runtime.get("forward_ok") else "failed"
-                runtime_detail = "前向输出 " + str(runtime.get("output_shape")) if runtime.get("forward_ok") else runtime.get("error", "前向失败")
-            else:
-                runtime_status = "skipped"
-                runtime_detail = runtime.get("skip_reason", "未找到可默认构造的 Layer")
-        elif runtime.get("attempted"):
-            runtime_status = "failed"
-            runtime_detail = runtime.get("error", "Paddle 导入失败")
-        else:
-            runtime_status = "skipped"
-            runtime_detail = runtime.get("skip_reason", "未执行 Paddle 运行时检查")
-        evaluation_steps[1] = {
-            "name": "Paddle 导入与 dummy 前向",
-            "status": runtime_status,
-            "detail": runtime_detail,
-        }
-        evaluation_steps[2] = {"name": "语法/迁移/结构静态评测", "status": "running"}
-        _task_intermediate(task_id, evaluation_steps=evaluation_steps)
-        _task_update(task_id, progress=85, stage=3, message="评测生成代码…")
-        evaluation = _eval_paddle(gen_code, analysis, retrieved, source_text, conversion, runtime,
-                                  companion_files=extra_files)
-        static_names = {"语法合法", "引入 paddle", "无 torch 残留", "网络结构完整（nn.Layer + forward）"}
-        if extra_files:
-            static_names.add("伴随 Python 模块语法合法")
-        if conversion is not None:
-            static_names.add("转换器产出代码")
-        static_checks = {k: v for k, v in evaluation.get("checks", {}).items() if k in static_names}
-        static_ok = bool(static_checks) and all(static_checks.values())
-        evaluation_steps[2] = {
-            "name": "语法/迁移/结构静态评测",
-            "status": "passed" if static_ok else "failed",
-            "detail": f"{sum(static_checks.values())}/{len(static_checks)} 项通过",
-        }
-        _task_intermediate(task_id, evaluation_steps=evaluation_steps)
-        if modelx_fallback_reason:
-            evaluation["note"] = (
-                "转换依赖不可用，当前展示预生成 Paddle 产物；原因：%s。 %s"
-                % (modelx_fallback_reason, evaluation.get("note", ""))
-            ).strip()
-        result_files = [{"name": f"{name}_paddle.py", "language": "python", "content": gen_code}]
-        result_files.extend(
-            {"name": relative_name, "language": "python", "content": content}
-            for relative_name, content in extra_files.items()
+        if key_type == "unclassified":
+            raise RuntimeError("顶部设置中的 API Key 类别未确认；请先选择普通标准 Key 或其他兼容服务 Key")
+        base_url = llm_settings.get("base_url") or DEFAULT_MODEL_BASE_URL
+        model = llm_settings.get("model")
+        if not model:
+            raise RuntimeError("请先在右上角“LLM 设置”中填写模型 ID")
+        client = OpenAICompatibleClient(
+            base_url=base_url, api_key=api_key, provider=llm_settings.get("provider", ""),
+            # Reasoning-capable official endpoints can spend time before
+            # emitting the candidate body. Keep an explicit bound, but leave
+            # enough room for one live demo generation within the 360s task
+            # deadline instead of timing out at 75s.
+            timeout=float(os.environ.get("SEMTRANS_LLM_TIMEOUT_S", "150")),
         )
-        _task_update(task_id, status="completed", progress=100, stage=3, message="完成", result={
-            "kb": "paddle", "target": name,
-            "files": result_files,
-            "evaluation": evaluation, "pre_generated": pre_generated,
-        })
-    except Exception as e:
-        _live_done(task_id, "live")
-        _task_update(task_id, status="failed", error=str(e), message=f"失败: {e}")
+        output_dir = GEN_DIR / "semtrans" / task_id
+        output_dir.mkdir(parents=True, exist_ok=True)
+        runtime_config = {
+            "max_repairs": 2,
+            "max_sample": 2,
+            "target_count": 3,
+            "llm_timeout_s": float(os.environ.get("SEMTRANS_LLM_TIMEOUT_S", "150")),
+            "search_budget_ms": 1200,
+            # PyTorch/Paddle CPU kernels can accumulate a small FP32 drift at
+            # BatchNorm boundaries (especially in DenseNet).  This is an
+            # explicit cross-framework demo tolerance, surfaced in the
+            # returned SemTrans report; ONNX settings remain unchanged.
+            "atol": 1e-3,
+            "rtol": 1e-3,
+            "seed": int(os.environ.get("SEMTRANS_DEMO_SEED", "20261027")),
+        }
+        worker_request = {
+            "source_code": source_text,
+            "source_label": source_label,
+            "profile": profile,
+            "config": runtime_config,
+            "output_dir": str(output_dir),
+            "model_service": {
+                "provider": llm_settings.get("provider", ""),
+                "base_url": base_url,
+                "model": model,
+                "api_key": api_key,
+            },
+        }
+        _task_update(task_id, progress=25, stage=2, message="启动 SemTrans 隔离 worker…")
+        _task_intermediate(task_id, evaluation_steps=[])
+        passed_count = 0
+
+        def on_event(event: dict):
+            nonlocal passed_count
+            stage = {k: event[k] for k in ("name", "status", "detail") if k in event}
+            if not stage:
+                return
+            existing = next((i for i, item in enumerate(stage_list)
+                             if item.get("name") == stage.get("name")), None)
+            if existing is None:
+                stage_list.append(stage)
+            else:
+                stage_list[existing] = stage
+            if stage.get("status") in ("passed", "failed", "unverified"):
+                passed_count += 1
+            progress = min(92, 28 + passed_count * 9)
+            _task_update(task_id, progress=progress, stage=3,
+                         message=f"SemTrans：{stage.get('name', '评测')} · {stage.get('status', '')}")
+            _task_intermediate(task_id, evaluation_steps=[dict(item) for item in stage_list])
+
+        result = run_semtrans_worker(
+            request=worker_request,
+            task_dir=output_dir,
+            timeout_s=int(os.environ.get("SEMTRANS_TASK_TIMEOUT_S", "360")),
+            on_event=on_event,
+        )
+        # Never persist the secret in the task result, even if an upstream error
+        # unexpectedly echoes request content.
+        safe_result_text = json.dumps(result, ensure_ascii=False)
+        safe_result_text = safe_result_text.replace(llm_settings.get("api_key", ""), "[REDACTED]")
+        result = json.loads(safe_result_text)
+        if result.get("error") or not result.get("files"):
+            error = str(result.get("error") or "SemTrans 未产出 Paddle 代码")[:3000]
+            finish_running_stages(error)
+            _task_update(task_id, status="failed", progress=100, stage=3,
+                         error=error, message=f"失败：{error}")
+            return
+
+        result["target"] = source_label
+        result["kb"] = "paddle"
+        provider_info = public_provider_settings(llm_settings)
+        provider_label = provider_info["catalog"].get(llm_settings.get("provider"), {}).get(
+            "label", "OpenAI-compatible API"
+        )
+        result["evaluation"] = {
+            "kind": "semtrans",
+            "scores": {},
+            "checks": {
+                "候选代码已生成": True,
+                "语义对齐检查通过": bool(
+                    result.get("validation_rounds")
+                    and result["validation_rounds"][0].get("verified")
+                ),
+                "独立输入复验通过": bool(result.get("verified")),
+                "最终结论：SemTrans 通过": bool(result.get("verified")),
+            },
+            "stats": {
+                "语义验证结论": result.get("status", "unverified"),
+                "LLM 提供方": provider_label,
+                "模型": result.get("model", model),
+                "生成耗时（秒）": result.get("generation_elapsed_s", 0),
+                "总耗时（秒）": result.get("total_elapsed_s", 0),
+                "修复轮数": result.get("repair_rounds", 0),
+            },
+            "semtrans": {
+                "status": result.get("status"),
+                "verified": result.get("verified"),
+                "provider": provider_label,
+                "model": result.get("model", model),
+                "generation_elapsed_s": result.get("generation_elapsed_s", 0),
+                "total_elapsed_s": result.get("total_elapsed_s", 0),
+                "repair_rounds": result.get("repair_rounds", 0),
+                "validation_rounds": result.get("validation_rounds", []),
+                "stages": result.get("stages", []),
+                "diagnostic": result.get("diagnostic", []),
+                "semantic_evidence": [row.get("semantic_evidence", {}) for row in result.get("validation_rounds", [])],
+                "numerical_checks": [row.get("numerical_checks", []) for row in result.get("validation_rounds", [])],
+                "numerical_summaries": [row.get("numerical_summary", {}) for row in result.get("validation_rounds", [])],
+                "limitations": result.get("limitations", []),
+                "fault_injection": result.get("fault_injection"),
+                "code_history": result.get("code_history", []),
+                "atol": runtime_config["atol"],
+                "rtol": runtime_config["rtol"],
+                "search_budget_ms": runtime_config["search_budget_ms"],
+            },
+            "note": "执行驱动的有限输入语义检查；不是对所有输入的形式化等价证明。",
+        }
+        _task_update(task_id, status="completed", progress=100, stage=3,
+                     message=f"SemTrans worker 完成 · 评测 {result['evaluation']['semtrans']['status']}",
+                     result=result)
+    except Exception as exc:
+        message = f"{type(exc).__name__}: {exc}"
+        key = get_provider_settings().get("api_key", "")
+        if key:
+            message = message.replace(key, "[REDACTED]")
+        finish_running_stages(message)
+        _task_update(task_id, status="failed", error=message[:3000], message=f"失败：{message[:500]}")
 
 
-# ---------------------------------------------------------------------------
-# API：知识库浏览（两套知识库内容查看）
+# API：知识库浏览（各知识源独立维护）
 # ---------------------------------------------------------------------------
 
 BASELINE_DATASET = HERTA_KB_DIR / "baseline_dataset.json"
@@ -1873,9 +1784,9 @@ def onnx_dataset():
 
 @app.get("/api/kb/paddle/dataset")
 def paddle_dataset():
-    """PyTorch→Paddle 映射规则数据集可视化载荷。"""
+    """SemTrans PyTorch/Paddle 数学语义定义目录。"""
     if not PADDLE_DATASET.exists():
-        raise HTTPException(status_code=404, detail="Paddle 映射规则载荷不存在（先运行 server/tools/build_paddle_dataset.py）")
+        raise HTTPException(status_code=404, detail="SemTrans 语义定义载荷不存在（先运行 server/tools/build_semtrans_dataset.py）")
     return json.loads(PADDLE_DATASET.read_text(encoding="utf-8"))
 
 
@@ -1904,40 +1815,84 @@ def onnx_records(query: str = "", category: str = "", limit: int = 100):
 
 
 # ---------------------------------------------------------------------------
-# API：设置（进程内生效）
+# API：共享模型服务设置（协议、ONNX、SemTrans/Paddle 共用）
 # ---------------------------------------------------------------------------
 
 class SettingsRequest(BaseModel):
-    api_key: str = ""
-    chat_model: str = ""
-    chat_provider: str = ""
-    chat_base_url: str = ""
-    chat_api_key: str = ""
+    api_key: Optional[str] = None
+    chat_model: Optional[str] = None
+    chat_provider: Optional[str] = None
+    chat_base_url: Optional[str] = None
+    api_key_type: Optional[str] = None
+    clear_api_key: bool = False
+    # Backward-compatible alias; both fields refer to the same shared API key.
+    chat_api_key: Optional[str] = None
 
 
 @app.get("/api/settings")
 def get_settings_api():
+    settings = public_provider_settings(get_provider_settings())
     return {
         "llm_available": _llm_available(),
-        "chat_model": os.environ.get("HERTA_CHAT_MODEL", "glm-5.1"),
+        **settings,
+        # Keep the existing frontend/API field names while exposing the new
+        # independent provider profiles alongside them.
+        "chat_model": settings["model"],
+        "chat_base_url": settings["base_url"],
     }
 
 
 @app.post("/api/settings")
 def update_settings(req: SettingsRequest):
-    mapping = {
-        "ZAI_API_KEY": req.api_key,
-        "HERTA_CHAT_MODEL": req.chat_model,
-        "HERTA_CHAT_PROVIDER": req.chat_provider,
-        "HERTA_CHAT_BASE_URL": req.chat_base_url,
-        "HERTA_CHAT_API_KEY": req.chat_api_key,
-    }
-    for k, v in mapping.items():
-        if v:
-            os.environ[k] = v
+    supplied_key = req.api_key if req.api_key is not None else req.chat_api_key
+    try:
+        saved = save_provider_settings(
+            provider=req.chat_provider,
+            base_url=req.chat_base_url,
+            model=req.chat_model,
+            api_key=supplied_key,
+            api_key_type=req.api_key_type,
+            clear_api_key=req.clear_api_key,
+        )
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"模型服务设置保存失败：{exc}") from None
+
+    # Mirror only the selected profile into legacy Herta variables. Other
+    # provider profiles remain encrypted and untouched.
+    restore_provider_settings_to_env()
     try:
         from herta.config import reload_settings
         reload_settings()
     except Exception:
         pass
-    return {"status": "ok", "llm_available": _llm_available()}
+    return {"status": "ok", **get_settings_api()}
+
+
+@app.post("/api/settings/test")
+def test_model_settings_api():
+    settings = get_provider_settings()
+    api_key = settings.get("api_key", "")
+    model = settings.get("model", "")
+    base_url = settings.get("base_url", DEFAULT_MODEL_BASE_URL)
+    key_type = settings.get("api_key_type", "unclassified" if api_key else "standard")
+    if not api_key:
+        raise HTTPException(status_code=400, detail="请先在顶部 LLM 设置中配置 API Key")
+    if key_type == "coding_plan":
+        raise HTTPException(
+            status_code=400,
+            detail="Coding Plan Key 仅用于官方支持工具；本平台不会向服务端点发送此 Key。",
+        )
+    if key_type == "unclassified":
+        raise HTTPException(status_code=400, detail="请先确认并选择 API Key 类别")
+    if not model:
+        raise HTTPException(status_code=400, detail="请先填写并保存模型 ID")
+    try:
+        client = OpenAICompatibleClient(base_url=base_url, api_key=api_key, provider=settings.get("provider", ""), timeout=20)
+        client.test_connection(model)
+    except ModelServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    except Exception as exc:
+        # Do not relay transport exceptions verbatim; they can contain request headers.
+        raise HTTPException(status_code=502, detail=f"连接模型服务失败：{type(exc).__name__}") from None
+    catalog = public_provider_settings(settings)["catalog"]
+    return {"status": "ok", "provider": catalog[settings["provider"]]["label"], "model": model}

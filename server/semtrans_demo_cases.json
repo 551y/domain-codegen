@@ -1,0 +1,53 @@
+{
+  "alexnet": {
+    "label": "AlexNet - real vision model",
+    "source_file": "alexnet.py",
+    "source_path": "vendor/opalign/EVALUATION/datasets/models/pytorch/vision/sourceModels/alexnet.py",
+    "class_name": "AlexNet",
+    "input_shape": [1, 3, 224, 224],
+    "init_kwargs": {"num_classes": 1000, "dropout": 0.5},
+    "input_dtype": "float32",
+    "task_guidance": "Preserve the exact real AlexNet module hierarchy, constructor, parameter shapes, evaluation behavior and FP32 semantics."
+  },
+  "densenet": {
+    "label": "DenseNet - real vision model",
+    "source_file": "densenet.py",
+    "source_path": "vendor/opalign/EVALUATION/datasets/models/pytorch/vision/sourceModels/densenet.py",
+    "class_name": "DenseNet",
+    "input_shape": [1, 3, 224, 224],
+    "init_kwargs": {"growth_rate": 32, "block_config": [6, 12, 24, 16], "num_init_features": 64, "bn_size": 4, "drop_rate": 0.0, "num_classes": 1000, "memory_efficient": false},
+    "input_dtype": "float32",
+    "task_guidance": "Preserve dense blocks, transitions, BatchNorm running statistics, parameter shapes and FP32 evaluation semantics."
+  },
+  "shufflenetv2": {
+    "label": "ShuffleNetV2 - real vision model",
+    "source_file": "shufflenetv2.py",
+    "source_path": "vendor/opalign/EVALUATION/datasets/models/pytorch/vision/sourceModels/shufflenetv2.py",
+    "class_name": "ShuffleNetV2",
+    "input_shape": [1, 3, 224, 224],
+    "init_kwargs": {"stages_repeats": [4, 8, 4], "stages_out_channels": [24, 116, 232, 464, 1024], "num_classes": 1000},
+    "input_dtype": "float32",
+    "support_note": "Channel-shuffle tuple-output alignment is covered by the real-model regression.",
+    "task_guidance": "Preserve channel shuffle, inverted residual branches, BatchNorm, pooling and parameter shapes."
+  },
+  "squeezenet": {
+    "label": "SqueezeNet 1.0 - real vision model",
+    "source_file": "squeezenet.py",
+    "source_path": "vendor/opalign/EVALUATION/datasets/models/pytorch/vision/sourceModels/squeezenet.py",
+    "class_name": "SqueezeNet",
+    "input_shape": [1, 3, 224, 224],
+    "init_kwargs": {"version": "1_0", "num_classes": 1000, "dropout": 0.5},
+    "input_dtype": "float32",
+    "task_guidance": "Preserve Fire modules, squeeze/expand branches, concatenation, pooling, classifier and FP32 evaluation semantics."
+  },
+  "mnasnet": {
+    "label": "MNASNet - real vision model",
+    "source_file": "mnasnet.py",
+    "source_path": "vendor/opalign/EVALUATION/datasets/models/pytorch/vision/sourceModels/mnasnet.py",
+    "class_name": "MNASNet",
+    "input_shape": [1, 3, 224, 224],
+    "init_kwargs": {"alpha": 1.0, "num_classes": 1000, "dropout": 0.2},
+    "input_dtype": "float32",
+    "task_guidance": "Preserve residual inverted residual blocks, residual additions, depthwise convolutions, BatchNorm, global mean pooling and FP32 evaluation semantics. Use paddle.add explicitly for residual additions so the graph edge remains visible to the semantic tracer."
+  }
+}

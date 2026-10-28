@@ -50,7 +50,7 @@ const KB_META: Record<string, { icon: typeof Satellite; title: string; subtitle:
     icon: Plane,
     title: "无人机模型部署适配",
     subtitle: "PyTorch → ONNX / PaddlePaddle",
-    desc: "上传 PyTorch 模型源码（.py），ONNX 目标检索模型部署适配知识库并真实执行导出，产出可下载的 .onnx 与配套 C++ 推理源码；PaddlePaddle 目标进行确定性的源码级规则转换（AST + 映射规则，不依赖 LLM），并执行对应评测。",
+    desc: "上传 PyTorch 模型源码（.py），ONNX 目标真实执行导出并评测；PaddlePaddle 目标使用 SemTrans 与配置的 OpenAI-compatible 模型服务生成候选代码，通过数学语义参照定位差异并复验。",
   },
 };
 
@@ -60,7 +60,7 @@ const KB_CHIP: Record<string, string> = { protocol: "协议", operator: "ONNX", 
 // 模型入口的目标框架选项（值即后端流水线 id；两个目标检索同一套模型部署适配知识库）
 const TARGET_META: Record<"operator" | "paddle", { icon: typeof Satellite; title: string; sub: string }> = {
   operator: { icon: Plane, title: "PyTorch → ONNX", sub: "部署导出 · 产出 .onnx + C++ 推理源码" },
-  paddle: { icon: ArrowLeftRight, title: "PyTorch → PaddlePaddle", sub: "源码级规则转换 · 产出 Paddle 模型源码" },
+  paddle: { icon: ArrowLeftRight, title: "PyTorch → PaddlePaddle", sub: "SemTrans 语义验证与定向修复 · OpenAI-compatible LLM 生成候选" },
 };
 
 const STAGES = ["解析输入", "检索知识库", "生成目标代码", "评测结果"];
@@ -90,11 +90,6 @@ interface TrackedTask {
 
 // 结果拉取连续失败上限（轮询 1.5s 一次，约 30s），超出按失败处理，避免永远停在「结果载入中」
 const RESULT_FETCH_MAX_FAILS = 20;
-
-// 工作台任务跨页面保持：任务条/焦点/结果持久化到 localStorage，切到知识库页或刷新后恢复；
-// 恢复回来的未完成任务由轮询循环自动续跑，完成但结果缺失的走既有限次重试拉取
-const TASKS_STORAGE_KEY = "workbench_tasks_v1";
-const TASKS_STORAGE_CAP = 10;
 
 function Stepper({
   kb,
@@ -171,7 +166,7 @@ function IntermediateView({ data }: { data: TaskIntermediate }) {
   const hasAny =
     data.gen_mode || data.parsed || data.operators ||
     (data.retrieved && data.retrieved.length > 0) || data.retrieval || data.config_stats ||
-    data.conversion_stats || data.evaluation_steps || data.live || data.live_config || data.live_handler_plan || data.live_handler;
+    data.evaluation_steps || data.live || data.live_config || data.live_handler_plan || data.live_handler;
   if (!hasAny) return null;
   return (
     <div className="mt-3 space-y-2.5 rounded-lg border border-border/70 bg-card/70 p-3">
@@ -253,15 +248,6 @@ function IntermediateView({ data }: { data: TaskIntermediate }) {
         </div>
       )}
 
-      {data.conversion_stats && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10.5px] text-muted-foreground">
-          <span>转换统计</span>
-          <span>成功 API：<span className="font-bold text-foreground">{data.conversion_stats.success}</span></span>
-          <span>未支持：<span className="font-bold text-foreground">{data.conversion_stats.failed}</span></span>
-          <span>成功率：<span className="font-bold text-primary">{data.conversion_stats.rate}%</span></span>
-        </div>
-      )}
-
       <EvaluationStepsView steps={data.evaluation_steps} />
     </div>
   );
@@ -275,24 +261,44 @@ function EvaluationStepsView({
   className?: string;
 }) {
   if (!steps || steps.length === 0) return null;
+  const active = steps.find((step) => step.status === "running" || step.status === "pending");
+  const failed = steps.find((step) => step.status === "failed");
+  const headline = active
+    ? `当前阶段：${active.name}`
+    : failed
+      ? `检查失败：${failed.name}`
+      : "阶段检查已完成";
   return (
-    <div className={cn("rounded-lg bg-muted/50 px-3 py-2", className)}>
-      <div className="mb-1 text-[11px] font-medium text-muted-foreground">Paddle 评估过程</div>
-      {steps.map((step) => (
-        <div key={step.name} className="flex items-center gap-1.5 py-0.5 text-[11px]">
+    <div className={cn("rounded-lg border border-border bg-card px-3 py-2.5", className)}>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <div className="text-[11px] font-semibold text-foreground">SemTrans 自动检查（动态）</div>
+        <span className={cn(
+          "rounded px-1.5 py-0.5 text-[9px]",
+          active ? "bg-primary/10 text-primary" : failed ? "bg-destructive/10 text-destructive" : "bg-emerald-500/10 text-emerald-700",
+        )}>
+          {active ? "进行中" : failed ? "失败" : "已完成"}
+        </span>
+      </div>
+      <div className="mb-1.5 text-[10px] text-muted-foreground">{headline}</div>
+      {steps.map((step, index) => (
+        <div key={step.name} className="flex items-start gap-1.5 py-0.5 text-[11px]">
+          <span className="w-3 shrink-0 text-right font-mono text-[9px] text-muted-foreground">{index + 1}</span>
           {step.status === "passed" ? (
             <CheckCircle2 size={12} className="shrink-0 text-emerald-500" />
           ) : step.status === "failed" ? (
             <XCircle size={12} className="shrink-0 text-destructive" />
+          ) : step.status === "unverified" ? (
+            <span className="h-3 w-3 shrink-0 rounded-full border border-amber-500 bg-amber-500/20" />
           ) : step.status === "running" ? (
             <Loader2 size={12} className="shrink-0 animate-spin text-primary" />
           ) : (
             <span className="h-3 w-3 shrink-0 rounded-full border border-border" />
           )}
-          <span className={step.status === "failed" ? "text-destructive" : step.status === "passed" ? "text-foreground/85" : "text-muted-foreground"}>
+          <span className={step.status === "failed" ? "font-medium text-destructive" : step.status === "unverified" ? "text-amber-700" : step.status === "passed" ? "text-foreground/85" : "text-primary"}>
             {step.name}
           </span>
           {step.status === "skipped" && <span className="text-[10px] text-muted-foreground">（已跳过）</span>}
+          {step.status === "unverified" && <span className="text-[10px] text-amber-700">（未验证）</span>}
           {step.detail && <span className="font-mono text-[9.5px] text-muted-foreground">· {step.detail}</span>}
         </div>
       ))}
@@ -308,6 +314,9 @@ export default function WorkbenchPage() {
   const [target, setTarget] = useState<"operator" | "paddle">("operator");
   const [samples, setSamples] = useState<SampleItem[]>([]);
   const [source, setSource] = useState<{ mode: "sample" | "upload"; id: string; label: string } | null>(null);
+  const [semtransClass, setSemtransClass] = useState("");
+  const [semtransShape, setSemtransShape] = useState("1, 3, 224, 224");
+  const [semtransInitKwargs, setSemtransInitKwargs] = useState("{}");
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState("");
   const [submitErr, setSubmitErr] = useState("");
@@ -318,40 +327,10 @@ export default function WorkbenchPage() {
   const [showHits, setShowHits] = useState(false);
   const [showFuncs, setShowFuncs] = useState(false);
   const tasksRef = useRef<Record<string, TrackedTask>>({});
-  // 恢复完成前禁止写档，避免挂载当拍把空初始态写回覆盖存档
-  const [restored, setRestored] = useState(false);
 
   useEffect(() => {
     tasksRef.current = tasks;
   }, [tasks]);
-
-  // 恢复上次会话留下的任务条（仅客户端执行一次）
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(TASKS_STORAGE_KEY);
-      if (raw) {
-        const saved = JSON.parse(raw) as { tasks?: Record<string, TrackedTask>; focusId?: string | null };
-        const restoredTasks = saved.tasks ?? {};
-        setTasks(restoredTasks);
-        setFocusId(saved.focusId && restoredTasks[saved.focusId] ? saved.focusId : (Object.keys(restoredTasks)[0] ?? null));
-      }
-    } catch { /* 存档损坏按全新会话处理 */ }
-    setRestored(true);
-  }, []);
-
-  // 任务/焦点变化即持久化（只留最近 TASKS_STORAGE_CAP 条，防膨胀防配额溢出）
-  useEffect(() => {
-    if (!restored) return;
-    try {
-      const kept = Object.values(tasks)
-        .sort((a, b) => b.startedAt - a.startedAt)
-        .slice(0, TASKS_STORAGE_CAP);
-      window.localStorage.setItem(
-        TASKS_STORAGE_KEY,
-        JSON.stringify({ tasks: Object.fromEntries(kept.map((t) => [t.id, t])), focusId }),
-      );
-    } catch { /* 配额满等非关键失败忽略 */ }
-  }, [tasks, focusId, restored]);
 
   useEffect(() => {
     api.kbs().then((r) => setKbs(r.kbs)).catch(() => {});
@@ -414,12 +393,12 @@ export default function WorkbenchPage() {
     return () => clearInterval(timer);
   }, []);
 
-  // 实际调用后端的流水线 id：模型入口按目标框架解析为 operator（ONNX）/ paddle（同一知识库）
+  // 模型入口分别选择 ONNX 或 SemTrans Paddle 流水线；两者保留独立知识/验证逻辑。
   const activeKb = kb === "model" ? target : kb;
   const prevCardRef = useRef<string | null>(null);
 
   // 样例列表随有效流水线刷新；仅场景卡切换时复位输入——模型入口内切换目标框架保留
-  // 已选样例/上传（两目标共用同一批样例 id，上传产物后端跨目录可解析）
+  // 已选样例/上传；后端根据目标使用各自经核实的模型 profile。
   useEffect(() => {
     if (!activeKb) {
       prevCardRef.current = null;
@@ -471,7 +450,26 @@ export default function WorkbenchPage() {
     if (!activeKb || !source) return;
     setSubmitErr("");
     try {
-      const { task_id } = await api.generate(activeKb, source.id, source.mode);
+      let profile: Record<string, unknown> | undefined;
+      if (activeKb === "paddle" && source.mode === "upload") {
+        let input_shape: number[];
+        let init_kwargs: Record<string, unknown>;
+        try {
+          input_shape = semtransShape.split(",").map((value) => Number(value.trim()));
+          if (!input_shape.length || input_shape.some((value) => !Number.isInteger(value) || value <= 0)) {
+            throw new Error("输入形状须为正整数，例如 1, 3, 224, 224");
+          }
+          init_kwargs = JSON.parse(semtransInitKwargs || "{}");
+          if (!init_kwargs || Array.isArray(init_kwargs) || typeof init_kwargs !== "object") {
+            throw new Error("构造参数必须是 JSON 对象");
+          }
+          if (!semtransClass.trim()) throw new Error("请填写 PyTorch 主模型类名");
+          profile = { class_name: semtransClass.trim(), input_shape, init_kwargs, input_dtype: "float32" };
+        } catch (e) {
+          throw new Error(e instanceof Error ? e.message : "SemTrans profile 无效");
+        }
+      }
+      const { task_id } = await api.generate(activeKb, source.id, source.mode, profile);
       const tracked: TrackedTask = {
         id: task_id, kb: activeKb, sourceId: source.id, label: source.label,
         startedAt: Date.now(),
@@ -482,7 +480,7 @@ export default function WorkbenchPage() {
     } catch (e) {
       setSubmitErr(e instanceof Error ? e.message : "提交失败");
     }
-  }, [activeKb, source]);
+  }, [activeKb, source, semtransClass, semtransShape, semtransInitKwargs]);
 
   const focusTask = (id: string) => {
     const t = tasks[id];
@@ -516,8 +514,9 @@ export default function WorkbenchPage() {
   const sortedTasks = Object.values(tasks).sort((a, b) => b.startedAt - a.startedAt);
   const focused = focusId ? tasks[focusId] : undefined;
   const focusedResult = focused?.result;
+  const focusedSemtrans = focusedResult?.evaluation?.semtrans;
   const focusedPaddleFile = focusedResult?.kb === "paddle"
-    ? focusedResult.files.find((file) => file.language === "python")
+    ? focusedResult.files.find((file) => file.name === "paddle_model.py")
     : undefined;
   // 步骤条第 3/4 步语义：生成 = 有任务在跑或正在查看结果（步骤条保留已完成步骤点亮）；
   // 结果 = 正在查看结果。回到首页（无在跑任务且未聚焦结果）时 3、4 均不亮。
@@ -549,7 +548,7 @@ export default function WorkbenchPage() {
             <h1 className="text-[26px] font-bold tracking-tight">选择任务场景 · 接入对应知识库</h1>
             <p className="mt-2 text-[14px] leading-relaxed text-muted-foreground">
               两类典型无人系统代码任务：星务协议处理注入星务协议知识库，
-              无人机视觉模型部署/跨框架转换注入模型部署适配知识库（ONNX 与 Paddle 目标共用同一数据集）。
+              ONNX 使用模型部署适配知识库；Paddle 使用 SemTrans 自带 PyTorch/Paddle 数学语义定义。
             </p>
             <Stepper kb={kb} source={!!source} active={generated} hasResult={!!focusedResult} className="mt-5" />
           </div>
@@ -658,7 +657,7 @@ export default function WorkbenchPage() {
             </span>
           </div>
 
-          {/* 目标框架（模型入口）：两个目标检索同一套模型部署适配知识库，仅生成目标不同 */}
+          {/* 目标框架：ONNX 与 SemTrans 保持各自的检索/语义验证路径 */}
           {kb === "model" && (
             <div className="mb-4">
               <div className="mb-1 text-[12px] font-medium text-muted-foreground">目标框架</div>
@@ -697,7 +696,7 @@ export default function WorkbenchPage() {
                 <button
                   key={id}
                   onClick={() => setSource({ mode: "sample", id, label: s.label })}
-                  title={[s.demo_label, s.modelx_variant].filter(Boolean).join(" · ") || s.label}
+                  title={s.demo_label ?? s.label}
                   className={cn(
                     "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 font-mono text-[12px] transition-colors",
                     active
@@ -709,8 +708,11 @@ export default function WorkbenchPage() {
                   {s.pre_generated ? (
                     <span className="rounded bg-primary/15 px-1 py-0.5 text-[9px] text-primary">完整演示</span>
                   ) : null}
-                  {s.modelx_variant ? (
-                    <span title={s.modelx_variant} className="rounded bg-indigo-500/10 px-1 py-0.5 text-[9px] text-indigo-600">底层库改写</span>
+                  {s.semantics_demo ? (
+                    <span className="rounded bg-amber-500/10 px-1 py-0.5 text-[9px] text-amber-700">受控语义诊断</span>
+                  ) : null}
+                  {s.support_note ? (
+                    <span className="rounded bg-slate-500/10 px-1 py-0.5 text-[9px] text-slate-600">受限覆盖</span>
                   ) : null}
                 </button>
               );
@@ -750,6 +752,26 @@ export default function WorkbenchPage() {
             />
           </label>
           {uploadErr && <p className="mt-2 text-[12px] text-destructive">{uploadErr}</p>}
+
+          {activeKb === "paddle" && source?.mode === "upload" && (
+            <div className="mt-4 grid gap-3 rounded-xl border border-border bg-muted/30 p-3 md:grid-cols-3" data-testid="semtrans-upload-profile">
+              <label className="text-[11px] text-muted-foreground">
+                PyTorch 主模型类
+                <input className="mt-1 w-full rounded-md border border-input bg-background px-2.5 py-2 font-mono text-[12px] text-foreground"
+                  placeholder="例如 MyModel" value={semtransClass} onChange={(e) => setSemtransClass(e.target.value)} />
+              </label>
+              <label className="text-[11px] text-muted-foreground">
+                FP32 dummy 输入形状
+                <input className="mt-1 w-full rounded-md border border-input bg-background px-2.5 py-2 font-mono text-[12px] text-foreground"
+                  placeholder="1, 3, 224, 224" value={semtransShape} onChange={(e) => setSemtransShape(e.target.value)} />
+              </label>
+              <label className="text-[11px] text-muted-foreground">
+                构造参数（JSON 对象）
+                <input className="mt-1 w-full rounded-md border border-input bg-background px-2.5 py-2 font-mono text-[12px] text-foreground"
+                  placeholder={'{"num_classes": 10}'} value={semtransInitKwargs} onChange={(e) => setSemtransInitKwargs(e.target.value)} />
+              </label>
+            </div>
+          )}
 
           {/* 生成按钮 */}
           <div className="mt-5 flex items-center gap-3">
@@ -964,58 +986,35 @@ export default function WorkbenchPage() {
                     <span>文件：<span className="text-foreground">{focusedPaddleFile.name}</span></span>
                     <span>大小：<span className="text-foreground">{(new TextEncoder().encode(focusedPaddleFile.content).byteLength / 1024).toFixed(1)} KB</span></span>
                     <span>源码文件：<span className="text-foreground">{focusedResult.files.length} 个</span></span>
-                    {focusedResult.evaluation?.stats?.["源文件"] && (
-                      <span>源文件：<span className="text-foreground">{focusedResult.evaluation.stats["源文件"]}</span></span>
+                    {focusedResult.evaluation?.semtrans?.profile_label && (
+                      <span>验证 profile：<span className="text-foreground">{focusedResult.evaluation.semtrans.profile_label}</span></span>
                     )}
                   </div>
-                  {focusedResult.evaluation?.stats && (
+                  {focusedResult.evaluation?.semtrans && (
                     <div className="mt-2 space-y-0.5 border-t border-border/60 pt-2 font-mono text-[10px] text-muted-foreground">
                       <div className="flex items-center justify-between">
-                        <span>转换器</span>
-                        <span className="font-bold text-foreground">{focusedResult.evaluation.stats["转换器"] ?? "AST/映射规则"}</span>
+                        <span>候选生成</span>
+                        <span className="font-bold text-foreground">SemTrans + {focusedResult.evaluation.semtrans.provider || "OpenAI-compatible API"} / {focusedResult.evaluation.semtrans.model || "模型"}</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span>成功转换 API</span>
-                        <span className="font-bold text-foreground">{focusedResult.evaluation.stats["成功转换 API"] ?? "—"}</span>
+                        <span>初始生成耗时</span>
+                        <span className="font-bold text-foreground">{focusedResult.evaluation.stats?.["生成耗时（秒）"] ?? "—"} 秒</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span>未支持 API</span>
-                        <span className="font-bold text-foreground">{focusedResult.evaluation.stats["未支持 API"] ?? "—"}</span>
+                        <span>独立复验容差</span>
+                        <span className="font-bold text-foreground">atol={focusedResult.evaluation.semtrans.atol} · rtol={focusedResult.evaluation.semtrans.rtol}</span>
                       </div>
-                      {focusedResult.evaluation.paddle_runtime?.profile_label && (
+                      {focusedResult.evaluation.semtrans.input_shape && (
                         <div className="flex items-center justify-between">
-                          <span>评估模型</span>
-                          <span className="font-bold text-foreground">{focusedResult.evaluation.paddle_runtime.profile_label}</span>
-                        </div>
-                      )}
-                      {focusedResult.evaluation.paddle_runtime?.input_shape && (
-                        <div className="flex items-center justify-between">
-                          <span>dummy 输入</span>
-                          <span className="font-bold text-foreground">[{focusedResult.evaluation.paddle_runtime.input_shape.join(", ")}]</span>
-                        </div>
-                      )}
-                      {focusedResult.evaluation.paddle_runtime?.output_shape && (
-                        <div className="flex items-center justify-between">
-                          <span>dummy 输出</span>
-                          <span className="font-bold text-foreground">[{focusedResult.evaluation.paddle_runtime.output_shape.join(", ")}]</span>
+                          <span>dummy 输入 profile</span>
+                          <span className="font-bold text-foreground">[{focusedResult.evaluation.semtrans.input_shape.join(", ")}]</span>
                         </div>
                       )}
                     </div>
                   )}
-                  {(focusedResult.evaluation?.library_modifications?.length ?? 0) > 0 && (
-                    <div className="mt-2 border-t border-border/60 pt-2 text-[11px]">
-                      <div className="mb-1 font-medium text-indigo-600">底层 Python 库改写</div>
-                      {focusedResult.evaluation!.library_modifications!.map((change) => (
-                        <button key={change.file} className="block break-all py-0.5 text-left font-mono text-[10px] text-primary hover:underline"
-                          onClick={() => { const i = focusedResult.files.findIndex((f) => f.name === change.file); if (i >= 0) setActiveFile(i); }}>
-                          {change.file} · {change.classes.join(", ")}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {(focusedResult.evaluation?.compatibility_fixes?.length ?? 0) > 0 && (
-                    <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
-                      样例适配：{focusedResult.evaluation!.compatibility_fixes!.join("；")}
+                  {focusedResult.evaluation?.semtrans?.fault_injection && (
+                    <p className="mt-2 rounded bg-amber-500/10 p-2 text-[10px] text-amber-800">
+                      {focusedResult.evaluation.semtrans.fault_injection.label}：{focusedResult.evaluation.semtrans.fault_injection.mutation}
                     </p>
                   )}
                 </div>
@@ -1202,38 +1201,62 @@ export default function WorkbenchPage() {
                       </div>
                     )}
 
-                    {focusedResult.evaluation.kind === "paddle" && (
-                      <div>
-                        <div className="mb-1.5 text-[11px] text-muted-foreground">
-                          输入算子 {focusedResult.evaluation.total_calls} 个 · 相关知识 {focusedResult.evaluation.retrieved_count} 条
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {(focusedResult.evaluation.custom_wrappers ?? 0) > 0 && (
-                            <span className="rounded bg-indigo-500/10 px-1.5 py-0.5 font-mono text-[10px] text-indigo-500">
-                              自定义对齐类 ×{focusedResult.evaluation.custom_wrappers}
-                            </span>
-                          )}
-                          {focusedResult.evaluation.paddle_runtime?.forward_ok && (
-                            <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] text-emerald-600">
-                              dummy 前向 {focusedResult.evaluation.paddle_runtime.output_shape ? `· ${focusedResult.evaluation.paddle_runtime.output_shape.join("×")}` : "通过"}
-                            </span>
-                          )}
-                          {focusedResult.evaluation.paddle_runtime && !focusedResult.evaluation.paddle_runtime.available && (
-                            <span className="rounded bg-amber-500/10 px-1.5 py-0.5 font-mono text-[10px] text-amber-600">
-                              未安装 Paddle · 已完成静态评测
-                            </span>
-                          )}
-                        </div>
-                        {focusedResult.evaluation.unsupported_apis && Object.keys(focusedResult.evaluation.unsupported_apis).length > 0 && (
-                          <div className="mt-2 rounded-lg bg-amber-500/5 px-2.5 py-2 font-mono text-[10px] text-muted-foreground">
-                            <span>未支持 API：</span>
-                            {Object.entries(focusedResult.evaluation.unsupported_apis).map(([name, count]) => (
-                              <span key={name} className="ml-1.5 inline-block rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-700">
-                                {name} ×{count}
-                              </span>
-                            ))}
+                    {focusedResult.evaluation.kind === "semtrans" && focusedSemtrans?.validation_rounds && (
+                      <div className="rounded-lg bg-muted/50 p-3">
+                        <div className="mb-1 text-[11px] font-semibold">SemTrans 证据摘要</div>
+                        <p className="mb-2 text-[10px] leading-relaxed text-muted-foreground">
+                          先检查候选代码，再做语义对齐，最后用未参与诊断的独立输入复验；每一项都由后端阶段事件更新。
+                        </p>
+                        <details>
+                          <summary className="cursor-pointer rounded bg-card px-2 py-1.5 text-[10px] font-medium text-primary">
+                            展开输入、误差与区域证据（{focusedSemtrans.validation_rounds.length} 轮）
+                          </summary>
+                          <div className="mt-2 space-y-1.5">
+                          {focusedSemtrans.validation_rounds.map((round, index) => (
+                            <div key={`${round.phase}-${index}`} className="rounded border border-border/70 bg-card px-2.5 py-2">
+                              <div className="flex flex-wrap items-center justify-between gap-2 text-[10.5px]">
+                                <span className="font-mono">{round.phase}</span>
+                                <span className={round.status === "passed" ? "text-emerald-600" : round.status === "failed" ? "text-destructive" : "text-amber-700"}>
+                                  {round.status === "passed" ? "通过" : round.status === "failed" ? "发现差异" : "未验证"}
+                                </span>
+                              </div>
+                              <div className="mt-1 font-mono text-[9.5px] text-muted-foreground">
+                                有效输入 {round.valid_paired_cases ?? 0} 组 · 搜索尝试 {round.search_attempts ?? 0} · {round.elapsed_s ?? 0} 秒
+                              </div>
+                              {focusedSemtrans.numerical_summaries?.[index] && (
+                                <div className="mt-1 font-mono text-[9.5px] text-muted-foreground">
+                                  实际前向检查 {focusedSemtrans.numerical_summaries[index].checked_cases ?? 0} 组 / {focusedSemtrans.numerical_summaries[index].checked_outputs ?? 0} 个输出
+                                  {focusedSemtrans.numerical_summaries[index].max_absolute_error != null && (
+                                    <> · 最大绝对误差 {focusedSemtrans.numerical_summaries[index].max_absolute_error}</>
+                                  )}
+                                  {focusedSemtrans.numerical_summaries[index].failed_elements != null && (
+                                    <> · 超差元素 {focusedSemtrans.numerical_summaries[index].failed_elements}/{focusedSemtrans.numerical_summaries[index].checked_elements ?? 0}</>
+                                  )}
+                                </div>
+                              )}
+                              {!!(focusedSemtrans.semantic_evidence?.[index]?.alignment_records?.length || focusedSemtrans.semantic_evidence?.[index]?.first_mismatch) && (
+                                <details className="mt-1.5 rounded bg-muted/60 px-2 py-1.5">
+                                  <summary className="cursor-pointer text-[9.5px] text-primary">
+                                    SemTrans 区域对齐证据（{focusedSemtrans.semantic_evidence?.[index]?.alignment_records?.length ?? 0} 个配对区域）
+                                  </summary>
+                                  <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all text-[9px] text-muted-foreground">
+                                    {JSON.stringify({
+                                      alignment_records: focusedSemtrans.semantic_evidence?.[index]?.alignment_records,
+                                      first_mismatch: focusedSemtrans.semantic_evidence?.[index]?.first_mismatch,
+                                    }, null, 2)}
+                                  </pre>
+                                </details>
+                              )}
+                              {!!round.issues && round.issues !== "[]" && (
+                                <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-all text-[9px] text-muted-foreground">{JSON.stringify(round.issues, null, 2)}</pre>
+                              )}
+                            </div>
+                          ))}
                           </div>
-                        )}
+                        </details>
+                        {focusedSemtrans.limitations?.map((limit) => (
+                          <p key={limit} className="mt-2 text-[9.5px] text-muted-foreground">{limit}</p>
+                        ))}
                       </div>
                     )}
 
@@ -1253,7 +1276,7 @@ export default function WorkbenchPage() {
                           onClick={() => setShowHits((v) => !v)}
                           className="flex items-center gap-1 text-[11.5px] font-medium text-primary"
                         >
-                          {focusedResult.kb === "paddle" ? "参考知识（不参与转换）" : "检索注入的知识"}（{focusedResult.evaluation.retrieved.length}）
+                          {focusedResult.kb === "paddle" ? "SemTrans 参考语义定义" : "检索注入的知识"}（{focusedResult.evaluation.retrieved.length}）
                           {showHits ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                         </button>
                         {showHits && (

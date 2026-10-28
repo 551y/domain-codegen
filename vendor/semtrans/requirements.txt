@@ -1,0 +1,7 @@
+# Tested with the repository's Trans4DL Python 3.9 environment.
+numpy>=1.24
+scipy>=1.10
+sympy>=1.12
+PyYAML>=6.0
+psutil>=5.9
+z3-solver>=4.12

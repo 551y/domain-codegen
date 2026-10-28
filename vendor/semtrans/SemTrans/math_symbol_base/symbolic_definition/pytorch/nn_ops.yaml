@@ -1,0 +1,3151 @@
+Conv1d: &Conv1d
+  description: "PyTorch 1D Convolution"
+  derived_variables:
+    cin: "Dim(W, 1) * G"
+    cout: "Dim(W, 0)"
+    K: "Dim(W, 2)"
+  default_values:
+    padding_mode: "zeros"
+  math_symbol: >
+    Sum(
+      Piecewise(
+        (
+          X[n, c, l*Strd + k*Dil - P], 
+          (l*Strd + k*Dil - P >= 0) & (l*Strd + k*Dil - P < Dim(X, 2))
+        ),
+        (
+          X[n, c, 
+            Piecewise(
+              (0, l*Strd + k*Dil - P < 0),                
+              (Dim(X, 2) - 1, l*Strd + k*Dil - P >= Dim(X, 2)), 
+              (l*Strd + k*Dil - P, True)               
+            )
+          ], 
+          padding_mode == 'replicate'
+        ),
+        (
+          X[n, c, (l*Strd + k*Dil - P) % Dim(X, 2)], 
+          padding_mode == 'circular'
+        ),
+        (
+          X[n, c, 
+             Piecewise(
+                (Abs(l*Strd + k*Dil - P), l*Strd + k*Dil - P < 0), 
+                (2*(Dim(X, 2) - 1) - (l*Strd + k*Dil - P), l*Strd + k*Dil - P >= Dim(X, 2)), 
+                (l*Strd + k*Dil - P, True)
+             )
+          ], 
+          padding_mode == 'reflect'
+        ),
+        (0, True)
+      ) * Piecewise(
+         (W[out, Mod(c, floor(cin/G)), k], Eq(floor(out / (cout/G)), floor(c / (cin/G)))),
+         (0, True)
+      ),
+      (c, 0, cin - 1),
+      (k, 0, K - 1)
+    ) + Piecewise((B[out], bias == True), (0, True))
+  output_shape:
+    - Dim(X, 0)
+    - "cout"
+    - "floor((Dim(X, 2) + 2*P - Dil*(K - 1) - 1)/Strd + 1)"
+  param_map:
+    in_channels:  "cin"
+    out_channels: "cout"
+    kernel_size:  "K"
+    stride:       "Strd"
+    padding:      "P"
+    dilation:     "Dil"
+    groups:       "G"
+    bias:         "bias"
+    padding_mode: "padding_mode"
+  mechanisms:
+    - description: "Group Divisibility"
+      check: "(cin % G == 0) & (cout % G == 0)"
+    - description: "Input Channels Match"
+      check: "Dim(X, 1) == cin"
+    - description: "Weight Shape Check"
+      check: "(Dim(W, 0) == cout) & (Dim(W, 2) == K)"
+
+Conv2d: &Conv2d
+  description: "PyTorch 2D Convolution with Grouped Support"
+  derived_variables:
+    cin: "Dim(W, 1) * G"
+    cout: "Dim(W, 0)"
+    K_h: "Dim(W, 2)"
+    K_w: "Dim(W, 3)"
+  default_values:
+    padding_mode: "zeros"
+  math_symbol: >
+    Sum(
+      Piecewise(
+        (
+          X[n, c, h*S_h + kh*D_h - P_h, w*S_w + kw*D_w - P_w], 
+          (h*S_h + kh*D_h - P_h >= 0) & (h*S_h + kh*D_h - P_h < Dim(X, 2)) &
+          (w*S_w + kw*D_w - P_w >= 0) & (w*S_w + kw*D_w - P_w < Dim(X, 3))
+        ),
+        (
+          X[n, c, 
+            Piecewise(
+              (0, h*S_h+kh*D_h-P_h < 0), 
+              (Dim(X, 2)-1, h*S_h+kh*D_h-P_h >= Dim(X, 2)), 
+              (h*S_h+kh*D_h-P_h, True)
+            ),
+            Piecewise(
+              (0, w*S_w+kw*D_w-P_w < 0), 
+              (Dim(X, 3)-1, w*S_w+kw*D_w-P_w >= Dim(X, 3)), 
+              (w*S_w+kw*D_w-P_w, True)
+            )
+          ], 
+          padding_mode == 'replicate'
+        ),
+        (
+          X[n, c, (h*S_h + kh*D_h - P_h) % Dim(X, 2), (w*S_w + kw*D_w - P_w) % Dim(X, 3)], 
+          padding_mode == 'circular'
+        ),
+        (
+          X[n, c, 
+             Piecewise(
+               (Abs(h*S_h+kh*D_h-P_h), h*S_h+kh*D_h-P_h < 0),
+               (2*(Dim(X, 2)-1)-(h*S_h+kh*D_h-P_h), h*S_h+kh*D_h-P_h >= Dim(X, 2)),
+               (h*S_h+kh*D_h-P_h, True)
+             ),
+             Piecewise(
+               (Abs(w*S_w+kw*D_w-P_w), w*S_w+kw*D_w-P_w < 0),
+               (2*(Dim(X, 3)-1)-(w*S_w+kw*D_w-P_w), w*S_w+kw*D_w-P_w >= Dim(X, 3)),
+               (w*S_w+kw*D_w-P_w, True)
+             )
+          ], 
+          padding_mode == 'reflect'
+        ),
+        (0, True)
+      ) * W[out, Mod(c, floor(cin/G)), kh, kw] * Piecewise((1, floor(c * G / cin) == floor(out * G / cout)), (0, True)),  
+      (c, 0, cin - 1), (kh, 0, K_h - 1), (kw, 0, K_w - 1)
+    ) + Piecewise((B[out], bias == True), (0, True))
+  output_shape:
+    - Dim(X, 0)
+    - "cout"
+    - "floor((Dim(X, 2) + 2*P_h - D_h*(K_h-1) - 1)/S_h + 1)"
+    - "floor((Dim(X, 3) + 2*P_w - D_w*(K_w-1) - 1)/S_w + 1)"
+  param_map:
+    in_channels:    "cin"
+    out_channels:   "cout"
+    kernel_size:    ["K_h", "K_w"]
+    stride:         ["S_h", "S_w"]
+    padding:        ["P_h", "P_w"]
+    dilation:       ["D_h", "D_w"]
+    groups:         "G"
+    bias:           "bias"
+    padding_mode:   "padding_mode"
+  mechanisms:
+    - description: "Input Rank Check"
+      check: "Rank(X) == 4"
+    - description: "Channel Group Divisibility"
+      check: "(cin % G == 0) & (cout % G == 0)"
+    - description: "Input Channels Match"
+      check: "Dim(X, 1) == cin"
+
+Conv3d: &Conv3d
+  description: "PyTorch 3D Convolution"
+  derived_variables:
+    cin: "Dim(W, 1) * G"
+    cout: "Dim(W, 0)"
+    K_d: "Dim(W, 2)"
+    K_h: "Dim(W, 3)"
+    K_w: "Dim(W, 4)"
+  default_values:
+    padding_mode: "zeros"
+  math_symbol: >
+    Sum(
+      Piecewise(
+        (
+          X[n, c, d*S_d + kd*D_d - P_d, h*S_h + kh*D_h - P_h, w*S_w + kw*D_w - P_w], 
+          (d*S_d + kd*D_d - P_d >= 0) & (d*S_d + kd*D_d - P_d < Dim(X, 2)) &
+          (h*S_h + kh*D_h - P_h >= 0) & (h*S_h + kh*D_h - P_h < Dim(X, 3)) &
+          (w*S_w + kw*D_w - P_w >= 0) & (w*S_w + kw*D_w - P_w < Dim(X, 4))
+        ),
+        (
+          X[n, c, 
+            Piecewise(
+              (0, d*S_d+kd*D_d-P_d < 0), 
+              (Dim(X, 2)-1, d*S_d+kd*D_d-P_d >= Dim(X, 2)), 
+              (d*S_d+kd*D_d-P_d, True)
+            ),
+            Piecewise(
+              (0, h*S_h+kh*D_h-P_h < 0), 
+              (Dim(X, 3)-1, h*S_h+kh*D_h-P_h >= Dim(X, 3)), 
+              (h*S_h+kh*D_h-P_h, True)
+            ),
+            Piecewise(
+              (0, w*S_w+kw*D_w-P_w < 0), 
+              (Dim(X, 4)-1, w*S_w+kw*D_w-P_w >= Dim(X, 4)), 
+              (w*S_w+kw*D_w-P_w, True)
+            )
+          ], 
+          padding_mode == 'replicate'
+        ),
+        (
+          X[n, c, 
+            (d*S_d + kd*D_d - P_d) % Dim(X, 2), 
+            (h*S_h + kh*D_h - P_h) % Dim(X, 3), 
+            (w*S_w + kw*D_w - P_w) % Dim(X, 4)
+          ], 
+          padding_mode == 'circular'
+        ),
+        (
+          X[n, c, 
+             Piecewise(
+               (Abs(d*S_d+kd*D_d-P_d), d*S_d+kd*D_d-P_d < 0),
+               (2*(Dim(X, 2)-1)-(d*S_d+kd*D_d-P_d), d*S_d+kd*D_d-P_d >= Dim(X, 2)),
+               (d*S_d+kd*D_d-P_d, True)
+             ),
+             Piecewise(
+               (Abs(h*S_h+kh*D_h-P_h), h*S_h+kh*D_h-P_h < 0),
+               (2*(Dim(X, 3)-1)-(h*S_h+kh*D_h-P_h), h*S_h+kh*D_h-P_h >= Dim(X, 3)),
+               (h*S_h+kh*D_h-P_h, True)
+             ),
+             Piecewise(
+               (Abs(w*S_w+kw*D_w-P_w), w*S_w+kw*D_w-P_w < 0),
+               (2*(Dim(X, 4)-1)-(w*S_w+kw*D_w-P_w), w*S_w+kw*D_w-P_w >= Dim(X, 4)),
+               (w*S_w+kw*D_w-P_w, True)
+             )
+          ], 
+          padding_mode == 'reflect'
+        ),
+        (0, True)
+      ) * W[out, Mod(c, floor(cin/G)), kd, kh, kw] * Piecewise((1, floor(c * G / cin) == floor(out * G / cout)), (0, True)),
+      (c, 0, cin - 1), (kd, 0, K_d - 1), (kh, 0, K_h - 1), (kw, 0, K_w - 1)
+    ) + Piecewise((B[out], bias == True), (0, True))
+  output_shape:
+    - Dim(X, 0)
+    - "cout"
+    - "floor((Dim(X, 2) + 2*P_d - D_d*(K_d-1) - 1)/S_d + 1)"
+    - "floor((Dim(X, 3) + 2*P_h - D_h*(K_h-1) - 1)/S_h + 1)"
+    - "floor((Dim(X, 4) + 2*P_w - D_w*(K_w-1) - 1)/S_w + 1)"
+  param_map:
+    in_channels: "cin"
+    out_channels: "cout"
+    kernel_size: ["K_d", "K_h", "K_w"]
+    stride: ["S_d", "S_h", "S_w"]
+    padding: ["P_d", "P_h", "P_w"]
+    dilation: ["D_d", "D_h", "D_w"]
+    groups: "G"
+    bias: "bias"
+    padding_mode: "padding_mode"
+  mechanisms:
+    - description: "Input Rank Check"
+      check: "Rank(X) == 5"
+    - description: "Channel Group Divisibility"
+      check: "(cin % G == 0) & (cout % G == 0)"
+    - description: "Input Channels Match"
+      check: "Dim(X, 1) == cin"
+
+ConvTranspose1d: &ConvTranspose1d
+  description: "PyTorch 1D Transposed Convolution"
+  math_symbol: >
+    Sum(
+      Piecewise(
+        (
+          X[n, c, floor((l + P - k * Dil) / Strd)],
+          ((l + P - k * Dil) % Strd == 0) &
+          (floor((l + P - k * Dil) / Strd) >= 0) &
+          (floor((l + P - k * Dil) / Strd) < Dim(X, 2))
+        ),
+        (0, True)
+      ) * W[c, out % floor(cout/G), k] * Piecewise((1, floor(c * G / cin) == floor(out * G / cout)), (0, True)),
+      (c, 0, cin - 1), (k, 0, K - 1)
+    ) + Piecewise((B[out], bias == True), (0, True))
+  output_shape:
+    - Dim(X, 0)
+    - "cout"
+    - "(Dim(X, 2) - 1) * Strd - 2 * P + Dil * (K - 1) + P_out + 1"
+  param_map:
+    in_channels:    "cin"
+    out_channels:   "cout"
+    kernel_size:    "K"
+    stride:         "Strd"
+    padding:        "P"
+    output_padding: "P_out"
+    dilation:       "Dil"
+    groups:         "G"
+    bias:           "bias"
+  mechanisms:
+    - description: "Output Padding Constraint"
+      check: "P_out < Strd"
+    - description: "Group Divisibility"
+      check: "(cin % G == 0) & (cout % G == 0)"
+
+ConvTranspose2d: &ConvTranspose2d
+  description: "PyTorch 2D Transposed Convolution"
+  math_symbol: >
+    Sum(
+      Piecewise(
+        (
+          X[n, c, 
+            floor((h + P_h - kh * D_h) / S_h), 
+            floor((w + P_w - kw * D_w) / S_w)
+          ],
+          (Mod(h + P_h - kh * D_h, S_h) == 0) &                
+          (floor((h + P_h - kh * D_h) / S_h) >= 0) &                
+          (floor((h + P_h - kh * D_h) / S_h) < Dim(X, 2)) &   
+          (Mod(w + P_w - kw * D_w, S_w) == 0) &               
+          (floor((w + P_w - kw * D_w) / S_w) >= 0) &                
+          (floor((w + P_w - kw * D_w) / S_w) < Dim(X, 3))    
+        ),
+        (0, True)
+      ) * W[c, out % floor(cout/G), kh, kw] * Piecewise((1, floor(c * G / cin) == floor(out * G / cout)), (0, True)),
+      (c, 0, cin - 1), (kh, 0, K_h - 1), (kw, 0, K_w - 1)
+    ) + Piecewise((B[out], bias == True), (0, True))
+  output_shape:
+    - Dim(X, 0)
+    - "cout"
+    - "(Dim(X, 2) - 1) * S_h - 2 * P_h + D_h * (K_h - 1) + P_out_h + 1"
+    - "(Dim(X, 3) - 1) * S_w - 2 * P_w + D_w * (K_w - 1) + P_out_w + 1"
+  param_map:
+    in_channels:    "cin"
+    out_channels:   "cout"
+    kernel_size:    ["K_h", "K_w"]
+    stride:         ["S_h", "S_w"]
+    padding:        ["P_h", "P_w"]
+    output_padding: ["P_out_h", "P_out_w"]
+    dilation:       ["D_h", "D_w"]
+    groups:         "G"
+    bias:           "bias"
+
+  mechanisms:
+    - description: "Output Padding Constraint"
+      check: "(P_out_h < S_h) & (P_out_w < S_w)"
+    - description: "Channel Group Divisibility"
+      check: "(cin % G == 0) & (cout % G == 0)"
+
+ConvTranspose3d: &ConvTranspose3d
+  description: "PyTorch 3D Transposed Convolution"
+  math_symbol: >
+    Sum(
+      Piecewise(
+        (
+          X[n, c, 
+            floor((d + P_d - kd * D_d) / S_d), 
+            floor((h + P_h - kh * D_h) / S_h), 
+            floor((w + P_w - kw * D_w) / S_w)
+          ],
+          ((d + P_d - kd * D_d) % S_d == 0) & 
+          (floor((d + P_d - kd * D_d) / S_d) >= 0) & 
+          (floor((d + P_d - kd * D_d) / S_d) < Dim(X, 2)) & 
+          ((h + P_h - kh * D_h) % S_h == 0) & 
+          (floor((h + P_h - kh * D_h) / S_h) >= 0) & 
+          (floor((h + P_h - kh * D_h) / S_h) < Dim(X, 3)) & 
+          ((w + P_w - kw * D_w) % S_w == 0) & 
+          (floor((w + P_w - kw * D_w) / S_w) >= 0) & 
+          (floor((w + P_w - kw * D_w) / S_w) < Dim(X, 4))  
+        ),
+        (0, True)
+      ) * W[c, out % floor(cout / G), kd, kh, kw] * Piecewise((1, floor(c * G / cin) == floor(out * G / cout)), (0, True)),
+      (c, 0, cin - 1), (kd, 0, K_d - 1), (kh, 0, K_h - 1), (kw, 0, K_w - 1)
+    ) + Piecewise((B[out], bias == True), (0, True))
+  output_shape:
+    - Dim(X, 0)
+    - "cout"
+    - "(Dim(X, 2) - 1) * S_d - 2 * P_d + D_d * (K_d - 1) + P_out_d + 1"
+    - "(Dim(X, 3) - 1) * S_h - 2 * P_h + D_h * (K_h - 1) + P_out_h + 1"
+    - "(Dim(X, 4) - 1) * S_w - 2 * P_w + D_w * (K_w - 1) + P_out_w + 1"
+  param_map:
+    in_channels:    "cin"
+    out_channels:   "cout"
+    kernel_size:    ["K_d", "K_h", "K_w"]
+    stride:         ["S_d", "S_h", "S_w"]
+    padding:        ["P_d", "P_h", "P_w"]
+    output_padding: ["P_out_d", "P_out_h", "P_out_w"]
+    dilation:       ["D_d", "D_h", "D_w"]
+    groups:         "G"
+    bias:           "bias"
+  mechanisms:
+    - description: "Channel Group Divisibility"
+      check: "(cin % G == 0) & (cout % G == 0)"
+    - description: "Output Padding Constraint"
+      check: "(P_out_d < S_d) & (P_out_h < S_h) & (P_out_w < S_w)"
+
+LazyConv1d:
+  <<: *Conv1d
+  description: "PyTorch 1D Convolution with lazy initialization. in_channels is inferred from input."
+  math_symbol: >
+    Sum(
+      Piecewise(
+        (
+          X[n, c, l*Strd + k*Dil - P], 
+          (l*Strd + k*Dil - P >= 0) & (l*Strd + k*Dil - P < Dim(X, 2))
+        ),
+        (
+          X[n, c, 
+            Piecewise(
+              (0, l*Strd + k*Dil - P < 0),                
+              (Dim(X, 2) - 1, l*Strd + k*Dil - P >= Dim(X, 2)), 
+              (l*Strd + k*Dil - P, True)               
+            )
+          ], 
+          padding_mode == 'replicate'
+        ),
+        (
+          X[n, c, (l*Strd + k*Dil - P) % Dim(X, 2)], 
+          padding_mode == 'circular'
+        ),
+        (
+          X[n, c, 
+             Piecewise(
+                (Abs(l*Strd + k*Dil - P), l*Strd + k*Dil - P < 0), 
+                (2*(Dim(X, 2) - 1) - (l*Strd + k*Dil - P), l*Strd + k*Dil - P >= Dim(X, 2)), 
+                (l*Strd + k*Dil - P, True)
+             )
+          ], 
+          padding_mode == 'reflect'
+        ),
+        (0, True)
+      ) * Piecewise(
+         (W[out, Mod(c, floor(Dim(X, 1)/G)), k], Eq(floor(out / (cout/G)), floor(c / (Dim(X, 1)/G)))),
+         (0, True)
+      ),
+      (c, 0, Dim(X, 1) - 1),
+      (k, 0, K - 1)
+    ) + Piecewise((B[out], bias == True), (0, True))
+  param_map:
+    out_channels: "cout"
+    kernel_size:  "K"
+    stride:       "Strd"
+    padding:      "P"
+    dilation:     "Dil"
+    groups:       "G"
+    bias:         "bias"
+    padding_mode: "padding_mode"
+  mechanisms:
+    - description: "Group Divisibility"
+      check: "(Dim(X, 1) % G == 0) & (cout % G == 0)"
+    - description: "Weight Shape Check"
+      check: "(Dim(W, 0) == cout) & (Dim(W, 2) == K)"
+
+LazyConv2d:
+  <<: *Conv2d
+  description: "PyTorch 2D Convolution with lazy initialization. in_channels is inferred from input."
+  math_symbol: >
+    Sum(
+      Piecewise(
+        (
+          X[n, c, h*S_h + kh*D_h - P_h, w*S_w + kw*D_w - P_w], 
+          (h*S_h + kh*D_h - P_h >= 0) & (h*S_h + kh*D_h - P_h < Dim(X, 2)) & 
+          (w*S_w + kw*D_w - P_w >= 0) & (w*S_w + kw*D_w - P_w < Dim(X, 3))
+        ),
+        (
+          X[n, c, 
+            Piecewise(
+              (0, h*S_h + kh*D_h - P_h < 0),
+              (Dim(X, 2) - 1, h*S_h + kh*D_h - P_h >= Dim(X, 2)),
+              (h*S_h + kh*D_h - P_h, True)
+            ),
+            Piecewise(
+              (0, w*S_w + kw*D_w - P_w < 0),
+              (Dim(X, 3) - 1, w*S_w + kw*D_w - P_w >= Dim(X, 3)),
+              (w*S_w + kw*D_w - P_w, True)
+            )
+          ], 
+          padding_mode == 'replicate'
+        ),
+        (
+          X[n, c, 
+            (h*S_h + kh*D_h - P_h) % Dim(X, 2), 
+            (w*S_w + kw*D_w - P_w) % Dim(X, 3)
+          ], 
+          padding_mode == 'circular'
+        ),
+        (
+          X[n, c, 
+             Piecewise(
+                (Abs(h*S_h + kh*D_h - P_h), h*S_h + kh*D_h - P_h < 0), 
+                (2*(Dim(X, 2) - 1) - (h*S_h + kh*D_h - P_h), h*S_h + kh*D_h - P_h >= Dim(X, 2)), 
+                (h*S_h + kh*D_h - P_h, True)
+             ),
+             Piecewise(
+                (Abs(w*S_w + kw*D_w - P_w), w*S_w + kw*D_w - P_w < 0), 
+                (2*(Dim(X, 3) - 1) - (w*S_w + kw*D_w - P_w), w*S_w + kw*D_w - P_w >= Dim(X, 3)), 
+                (w*S_w + kw*D_w - P_w, True)
+             )
+          ], 
+          padding_mode == 'reflect'
+        ),
+        (0, True)
+      ) * Piecewise(
+         (W[out, Mod(c, floor(Dim(X, 1)/G)), kh, kw], Eq(floor(out / (cout/G)), floor(c / (Dim(X, 1)/G)))),
+         (0, True)
+      ),
+      (c, 0, Dim(X, 1) - 1),
+      (kh, 0, K_h - 1),
+      (kw, 0, K_w - 1)
+    ) + Piecewise((B[out], bias == True), (0, True))
+  param_map:
+    out_channels:   "cout"
+    kernel_size:    ["K_h", "K_w"]
+    stride:         ["S_h", "S_w"]
+    padding:        ["P_h", "P_w"]
+    dilation:       ["D_h", "D_w"]
+    groups:         "G"
+    bias:           "bias"
+    padding_mode:   "padding_mode"
+  mechanisms:
+    - description: "Group Divisibility"
+      check: "(Dim(X, 1) % G == 0) & (cout % G == 0)"
+    - description: "Weight Shape Check"
+      check: "(Dim(W, 0) == cout) & (Dim(W, 2) == K_h) & (Dim(W, 3) == K_w)"
+
+LazyConv3d:
+  <<: *Conv3d
+  description: "PyTorch 3D Convolution with lazy initialization. in_channels is inferred from input."
+  math_symbol: >
+    Sum(
+      Piecewise(
+        (
+          X[n, c, d*S_d + kd*D_d - P_d, h*S_h + kh*D_h - P_h, w*S_w + kw*D_w - P_w], 
+          (d*S_d + kd*D_d - P_d >= 0) & (d*S_d + kd*D_d - P_d < Dim(X, 2)) & 
+          (h*S_h + kh*D_h - P_h >= 0) & (h*S_h + kh*D_h - P_h < Dim(X, 3)) & 
+          (w*S_w + kw*D_w - P_w >= 0) & (w*S_w + kw*D_w - P_w < Dim(X, 4))
+        ),
+        (
+          X[n, c, 
+            Piecewise(
+              (0, d*S_d + kd*D_d - P_d < 0),
+              (Dim(X, 2) - 1, d*S_d + kd*D_d - P_d >= Dim(X, 2)),
+              (d*S_d + kd*D_d - P_d, True)
+            ),
+            Piecewise(
+              (0, h*S_h + kh*D_h - P_h < 0),
+              (Dim(X, 3) - 1, h*S_h + kh*D_h - P_h >= Dim(X, 3)),
+              (h*S_h + kh*D_h - P_h, True)
+            ),
+            Piecewise(
+              (0, w*S_w + kw*D_w - P_w < 0),
+              (Dim(X, 4) - 1, w*S_w + kw*D_w - P_w >= Dim(X, 4)),
+              (w*S_w + kw*D_w - P_w, True)
+            )
+          ], 
+          padding_mode == 'replicate'
+        ),
+        (
+          X[n, c, 
+            (d*S_d + kd*D_d - P_d) % Dim(X, 2), 
+            (h*S_h + kh*D_h - P_h) % Dim(X, 3),
+            (w*S_w + kw*D_w - P_w) % Dim(X, 4)
+          ], 
+          padding_mode == 'circular'
+        ),
+        (
+          X[n, c, 
+             Piecewise(
+                (Abs(d*S_d + kd*D_d - P_d), d*S_d + kd*D_d - P_d < 0), 
+                (2*(Dim(X, 2) - 1) - (d*S_d + kd*D_d - P_d), d*S_d + kd*D_d - P_d >= Dim(X, 2)), 
+                (d*S_d + kd*D_d - P_d, True)
+             ),
+             Piecewise(
+                (Abs(h*S_h + kh*D_h - P_h), h*S_h + kh*D_h - P_h < 0), 
+                (2*(Dim(X, 3) - 1) - (h*S_h + kh*D_h - P_h), h*S_h + kh*D_h - P_h >= Dim(X, 3)), 
+                (h*S_h + kh*D_h - P_h, True)
+             ),
+             Piecewise(
+                (Abs(w*S_w + kw*D_w - P_w), w*S_w + kw*D_w - P_w < 0), 
+                (2*(Dim(X, 4) - 1) - (w*S_w + kw*D_w - P_w), w*S_w + kw*D_w - P_w >= Dim(X, 4)), 
+                (w*S_w + kw*D_w - P_w, True)
+             )
+          ], 
+          padding_mode == 'reflect'
+        ),
+        (0, True)
+      ) * Piecewise(
+         (W[out, Mod(c, floor(Dim(X, 1)/G)), kd, kh, kw], Eq(floor(out / (cout/G)), floor(c / (Dim(X, 1)/G)))),
+         (0, True)
+      ),
+      (c, 0, Dim(X, 1) - 1),
+      (kd, 0, K_d - 1),
+      (kh, 0, K_h - 1),
+      (kw, 0, K_w - 1)
+    ) + Piecewise((B[out], bias == True), (0, True))
+  param_map:
+    out_channels:   "cout"
+    kernel_size:    ["K_d", "K_h", "K_w"]
+    stride:         ["S_d", "S_h", "S_w"]
+    padding:        ["P_d", "P_h", "P_w"]
+    dilation:       ["D_d", "D_h", "D_w"]
+    groups:         "G"
+    bias:           "bias"
+    padding_mode:   "padding_mode"
+  mechanisms:
+    - description: "Group Divisibility"
+      check: "(Dim(X, 1) % G == 0) & (cout % G == 0)"
+    - description: "Weight Shape Check"
+      check: "(Dim(W, 0) == cout) & (Dim(W, 2) == K_d) & (Dim(W, 3) == K_h) & (Dim(W, 4) == K_w)"
+
+LazyConvTranspose1d:
+  <<: *ConvTranspose1d
+  description: "PyTorch 1D Transposed Convolution with lazy initialization. Inferred in_channels."
+  math_symbol: >
+    Sum(
+      Piecewise(
+        (
+          X[n, c, floor((l + P - k * Dil) / Strd)],
+          ((l + P - k * Dil) % Strd == 0) &
+          (floor((l + P - k * Dil) / Strd) >= 0) &
+          (floor((l + P - k * Dil) / Strd) < Dim(X, 2))
+        ),
+        (0, True)
+      ) * W[c, out % floor(cout/G), k] * Piecewise((1, floor(c * G / Dim(X, 1)) == floor(out * G / cout)), (0, True)),
+      (c, 0, Dim(X, 1) - 1), (k, 0, K - 1)
+    ) + Piecewise((B[out], bias == True), (0, True))
+  param_map:
+    out_channels:   "cout"
+    kernel_size:    "K"
+    stride:         "Strd"
+    padding:        "P"
+    output_padding: "P_out"
+    dilation:       "Dil"
+    groups:         "G"
+    bias:           "bias"
+  mechanisms:
+    - description: "Output Padding Constraint"
+      check: "P_out < Strd"
+    - description: "Group Divisibility"
+      check: "(Dim(X, 1) % G == 0) & (cout % G == 0)"
+
+LazyConvTranspose2d:
+  <<: *ConvTranspose2d
+  description: "PyTorch 2D Transposed Convolution with lazy initialization. Inferred in_channels."
+  math_symbol: >
+    Sum(
+      Piecewise(
+        (
+          X[n, c, 
+            floor((h + P_h - kh * D_h) / S_h), 
+            floor((w + P_w - kw * D_w) / S_w)
+          ],
+          ((h + P_h - kh * D_h) % S_h == 0) & 
+          (floor((h + P_h - kh * D_h) / S_h) >= 0) & 
+          (floor((h + P_h - kh * D_h) / S_h) < Dim(X, 2)) & 
+          ((w + P_w - kw * D_w) % S_w == 0) & 
+          (floor((w + P_w - kw * D_w) / S_w) >= 0) & 
+          (floor((w + P_w - kw * D_w) / S_w) < Dim(X, 3))
+        ),
+        (0, True)
+      ) * W[c, out % floor(cout / G), kh, kw] * Piecewise((1, floor(c * G / Dim(X, 1)) == floor(out * G / cout)), (0, True)),
+      (c, 0, Dim(X, 1) - 1), (kh, 0, K_h - 1), (kw, 0, K_w - 1)
+    ) + Piecewise((B[out], bias == True), (0, True))
+  param_map:
+    out_channels:   "cout"
+    kernel_size:    ["K_h", "K_w"]
+    stride:         ["S_h", "S_w"]
+    padding:        ["P_h", "P_w"]
+    output_padding: ["P_out_h", "P_out_w"]
+    dilation:       ["D_h", "D_w"]
+    groups:         "G"
+    bias:           "bias"
+  mechanisms:
+    - description: "Output Padding Constraint"
+      check: "(P_out_h < S_h) & (P_out_w < S_w)"
+    - description: "Group Divisibility"
+      check: "(Dim(X, 1) % G == 0) & (cout % G == 0)"
+
+LazyConvTranspose3d:
+  <<: *ConvTranspose3d
+  description: "PyTorch 3D Transposed Convolution with lazy initialization. Inferred in_channels."
+  math_symbol: >
+    Sum(
+      Piecewise(
+        (
+          X[n, c, 
+            floor((d + P_d - kd * D_d) / S_d), 
+            floor((h + P_h - kh * D_h) / S_h), 
+            floor((w + P_w - kw * D_w) / S_w)
+          ],
+          ((d + P_d - kd * D_d) % S_d == 0) & 
+          (floor((d + P_d - kd * D_d) / S_d) >= 0) & 
+          (floor((d + P_d - kd * D_d) / S_d) < Dim(X, 2)) & 
+          ((h + P_h - kh * D_h) % S_h == 0) & 
+          (floor((h + P_h - kh * D_h) / S_h) >= 0) & 
+          (floor((h + P_h - kh * D_h) / S_h) < Dim(X, 3)) & 
+          ((w + P_w - kw * D_w) % S_w == 0) & 
+          (floor((w + P_w - kw * D_w) / S_w) >= 0) & 
+          (floor((w + P_w - kw * D_w) / S_w) < Dim(X, 4))  
+        ),
+        (0, True)
+      ) * W[c, out % floor(cout / G), kd, kh, kw] * Piecewise((1, floor(c * G / Dim(X, 1)) == floor(out * G / cout)), (0, True)),
+      (c, 0, Dim(X, 1) - 1), (kd, 0, K_d - 1), (kh, 0, K_h - 1), (kw, 0, K_w - 1)
+    ) + Piecewise((B[out], bias == True), (0, True))
+  param_map:
+    out_channels:   "cout"
+    kernel_size:    ["K_d", "K_h", "K_w"]
+    stride:         ["S_d", "S_h", "S_w"]
+    padding:        ["P_d", "P_h", "P_w"]
+    output_padding: ["P_out_d", "P_out_h", "P_out_w"]
+    dilation:       ["D_d", "D_h", "D_w"]
+    groups:         "G"
+    bias:           "bias"
+  mechanisms:
+    - description: "Output Padding Constraint"
+      check: "(P_out_d < S_d) & (P_out_h < S_h) & (P_out_w < S_w)"
+    - description: "Group Divisibility"
+      check: "(Dim(X, 1) % G == 0) & (cout % G == 0)"
+
+Unfold:
+  description: "PyTorch Unfold (Im2Col). Maps input patches to flattened columns."
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+      (
+        X[n, 
+          c // (K_h * K_w), 
+          (l // ((Dim(X, 3) + 2*P_w - D_w*(K_w-1) - 1) // S_w + 1)) * S_h 
+          + ((c % (K_h * K_w)) // K_w) * D_h 
+          - P_h,
+          (l % ((Dim(X, 3) + 2*P_w - D_w*(K_w-1) - 1) // S_w + 1)) * S_w 
+          + ((c % (K_h * K_w)) % K_w) * D_w 
+          - P_w
+        ],
+        ((l // ((Dim(X, 3) + 2*P_w - D_w*(K_w-1) - 1) // S_w + 1)) * S_h + ((c % (K_h * K_w)) // K_w) * D_h - P_h >= 0) &
+        ((l // ((Dim(X, 3) + 2*P_w - D_w*(K_w-1) - 1) // S_w + 1)) * S_h + ((c % (K_h * K_w)) // K_w) * D_h - P_h < Dim(X, 2)) &
+        ((l % ((Dim(X, 3) + 2*P_w - D_w*(K_w-1) - 1) // S_w + 1)) * S_w + ((c % (K_h * K_w)) % K_w) * D_w - P_w >= 0) &
+        ((l % ((Dim(X, 3) + 2*P_w - D_w*(K_w-1) - 1) // S_w + 1)) * S_w + ((c % (K_h * K_w)) % K_w) * D_w - P_w < Dim(X, 3))
+      ),
+      (0, True) 
+    )
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1) * K_h * K_w
+    - ((Dim(X, 2) + 2*P_h - D_h*(K_h-1) - 1) // S_h + 1) * ((Dim(X, 3) + 2*P_w - D_w*(K_w-1) - 1) // S_w + 1)
+  param_map:
+    kernel_size: ["K_h", "K_w"]
+    dilation:    ["D_h", "D_w"]
+    padding:     ["P_h", "P_w"]
+    stride:      ["S_h", "S_w"]
+  mechanisms:
+    - description: "Input Rank Check"
+      check: "Rank(X) == 4"
+
+Fold:
+  description: "PyTorch Fold (Col2Im). Sums sliding blocks back into a tensor."
+  definition_type: operator
+  math_symbol: >
+    Sum(
+      Piecewise(
+        (
+          X[n, 
+            c * (K_h * K_w) + kh * K_w + kw, 
+            ((h + P_h - kh*D_h) // S_h) * ((W_out + 2*P_w - D_w*(K_w-1) - 1) // S_w + 1) 
+            + ((w + P_w - kw*D_w) // S_w)
+          ],
+          ((h + P_h - kh*D_h) % S_h == 0) &
+          ((h + P_h - kh*D_h) // S_h >= 0) &
+          (((h + P_h - kh*D_h) // S_h) < ((H_out + 2*P_h - D_h*(K_h-1) - 1) // S_h + 1)) &
+          ((w + P_w - kw*D_w) % S_w == 0) &
+          ((w + P_w - kw*D_w) // S_w >= 0) &
+          (((w + P_w - kw*D_w) // S_w) < ((W_out + 2*P_w - D_w*(K_w-1) - 1) // S_w + 1))
+        ),
+        (0, True)
+      ),
+      (kh, 0, K_h - 1), (kw, 0, K_w - 1)
+    )
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1) // (K_h * K_w)
+    - "H_out"
+    - "W_out"
+  param_map:
+    output_size: ["H_out", "W_out"]
+    kernel_size: ["K_h", "K_w"]
+    dilation:    ["D_h", "D_w"]
+    padding:     ["P_h", "P_w"]
+    stride:      ["S_h", "S_w"]
+  mechanisms:
+    - description: "Channel Block Divisibility"
+      check: "Dim(X, 1) % (K_h * K_w) == 0"
+    - description: "Input Length Consistency"
+      check: >
+        Dim(X, 2) == 
+        ((H_out + 2*P_h - D_h*(K_h-1) - 1) // S_h + 1) * ((W_out + 2*P_w - D_w*(K_w-1) - 1) // S_w + 1)
+        
+
+
+MaxPool1d: &MaxPool1d
+  description: "PyTorch 1D Max Pooling with Indices"
+  definition_type: operator
+  math_symbol:
+    - Max(
+        Piecewise(
+          (X[n, c, l*Strd + k*Dil - P], 
+           (l*Strd + k*Dil - P >= 0) & (l*Strd + k*Dil - P < Dim(X, 2))
+          ),
+          (neg_infinity, True)
+        ),
+        (k, 0, K - 1)
+      )
+    - Piecewise(
+        (
+          (l * Strd - P) + ArgMax(
+            Piecewise(
+              (X[n, c, l*Strd + k*Dil - P], 
+               (l*Strd + k*Dil - P >= 0) & (l*Strd + k*Dil - P < Dim(X, 2))
+              ),
+              (neg_infinity, True)
+            ),
+            (k, 0, K - 1)
+          ) * Dil,
+          return_indices
+        ),
+        (0, True)
+      )
+  output_shape:
+    - ["Dim(X, 0)", "Dim(X, 1)", "floor((Dim(X, 2) + 2*P - Dil*(K-1) - 1)/Strd + 1) if not ceil_mode else ceiling((Dim(X, 2) + 2*P - Dil*(K-1) - 1)/Strd + 1)"]
+    - ["Dim(X, 0)", "Dim(X, 1)", "floor((Dim(X, 2) + 2*P - Dil*(K-1) - 1)/Strd + 1) if not ceil_mode else ceiling((Dim(X, 2) + 2*P - Dil*(K-1) - 1)/Strd + 1)"]
+  param_map:
+    kernel_size:    "K"
+    stride:         "Strd"
+    padding:        "P"
+    dilation:       "Dil"
+    ceil_mode:      "ceil_mode"
+    return_indices: "return_indices"
+  mechanisms:
+    - description: "Padding Constraint"
+      check: "P <= floor(K / 2)"
+
+MaxPool2d: &MaxPool2d
+  description: "2D Max Pooling with Indices"
+  definition_type: operator
+  math_symbol:
+    - Max(
+        Piecewise(
+          (X[n, c, h*S_h + kh*D_h - P_h, w*S_w + kw*D_w - P_w], 
+           (h*S_h + kh*D_h - P_h >= 0) & (h*S_h + kh*D_h - P_h < Dim(X, 2)) &
+           (w*S_w + kw*D_w - P_w >= 0) & (w*S_w + kw*D_w - P_w < Dim(X, 3))
+          ),
+          (neg_infinity, True)
+        ),
+        (kh, 0, K_h - 1), (kw, 0, K_w - 1)
+      )
+    - Piecewise(
+        (
+          (h * S_h - P_h + 
+             floor(
+                ArgMax(
+                  Piecewise(
+                    (X[n, c, h*S_h + kh*D_h - P_h, w*S_w + kw*D_w - P_w], 
+                     (h*S_h + kh*D_h - P_h >= 0) & (h*S_h + kh*D_h - P_h < Dim(X, 2)) &
+                     (w*S_w + kw*D_w - P_w >= 0) & (w*S_w + kw*D_w - P_w < Dim(X, 3))
+                    ),
+                    (neg_infinity, True)
+                  ),
+                  (kh, 0, K_h - 1), (kw, 0, K_w - 1)
+                ) / K_w
+             ) * D_h
+          ) * Dim(X, 3) + 
+          (w * S_w - P_w + 
+             Mod(
+                ArgMax(
+                  Piecewise(
+                    (X[n, c, h*S_h + kh*D_h - P_h, w*S_w + kw*D_w - P_w], 
+                     (h*S_h + kh*D_h - P_h >= 0) & (h*S_h + kh*D_h - P_h < Dim(X, 2)) &
+                     (w*S_w + kw*D_w - P_w >= 0) & (w*S_w + kw*D_w - P_w < Dim(X, 3))
+                    ),
+                    (neg_infinity, True)
+                  ),
+                  (kh, 0, K_h - 1), (kw, 0, K_w - 1)
+                ), K_w
+             ) * D_w
+          ),
+          return_indices
+        ),
+        (0, True)
+      )
+  output_shape:
+    - ["Dim(X, 0)", "Dim(X, 1)",
+       "floor((Dim(X, 2) + 2*P_h - D_h*(K_h-1) - 1)/S_h + 1) if not ceil_mode else ceiling((Dim(X, 2) + 2*P_h - D_h*(K_h-1) - 1)/S_h + 1)",
+       "floor((Dim(X, 3) + 2*P_w - D_w*(K_w-1) - 1)/S_w + 1) if not ceil_mode else ceiling((Dim(X, 3) + 2*P_w - D_w*(K_w-1) - 1)/S_w + 1)"]
+    - ["Dim(X, 0)", "Dim(X, 1)",
+       "floor((Dim(X, 2) + 2*P_h - D_h*(K_h-1) - 1)/S_h + 1) if not ceil_mode else ceiling((Dim(X, 2) + 2*P_h - D_h*(K_h-1) - 1)/S_h + 1)",
+       "floor((Dim(X, 3) + 2*P_w - D_w*(K_w-1) - 1)/S_w + 1) if not ceil_mode else ceiling((Dim(X, 3) + 2*P_w - D_w*(K_w-1) - 1)/S_w + 1)"]
+  param_map:
+    kernel_size:    ["K_h", "K_w"]
+    stride:         ["S_h", "S_w"]
+    padding:        ["P_h", "P_w"]
+    dilation:       ["D_h", "D_w"]
+    ceil_mode:      "ceil_mode"
+    return_indices: "return_indices"
+  mechanisms:
+    - description: "Padding Constraint"
+      check: "(P_h <= floor(K_h / 2)) & (P_w <= floor(K_w / 2))"
+
+MaxPool3d: &MaxPool3d
+  description: "3D Max Pooling. Sliding window maximum with optional indices return."
+  definition_type: operator
+  math_symbol:
+    - Max(
+        Piecewise(
+          (X[n, c, d*S_d + kd*D_d - P_d, h*S_h + kh*D_h - P_h, w*S_w + kw*D_w - P_w], 
+           (d*S_d + kd*D_d - P_d >= 0) & (d*S_d + kd*D_d - P_d < Dim(X, 2)) &
+           (h*S_h + kh*D_h - P_h >= 0) & (h*S_h + kh*D_h - P_h < Dim(X, 3)) &
+           (w*S_w + kw*D_w - P_w >= 0) & (w*S_w + kw*D_w - P_w < Dim(X, 4))
+          ),
+          (neg_infinity, True)
+        ),
+        (kd, 0, K_d - 1), (kh, 0, K_h - 1), (kw, 0, K_w - 1)
+      )
+    - Piecewise(
+        (
+          (d * S_d - P_d + 
+             floor(
+               ArgMax(
+                 Piecewise(
+                   (X[n, c, d*S_d + kd*D_d - P_d, h*S_h + kh*D_h - P_h, w*S_w + kw*D_w - P_w], 
+                    (d*S_d + kd*D_d - P_d >= 0) & (d*S_d + kd*D_d - P_d < Dim(X, 2)) &
+                    (h*S_h + kh*D_h - P_h >= 0) & (h*S_h + kh*D_h - P_h < Dim(X, 3)) &
+                    (w*S_w + kw*D_w - P_w >= 0) & (w*S_w + kw*D_w - P_w < Dim(X, 4))
+                   ),
+                   (neg_infinity, True)
+                 ),
+                 (kd, 0, K_d - 1), (kh, 0, K_h - 1), (kw, 0, K_w - 1)
+               ) / (K_w * K_h)
+             ) * D_d
+          ) * (Dim(X, 3) * Dim(X, 4)) +
+          (h * S_h - P_h + 
+             Mod(
+               floor(
+                 ArgMax(
+                   Piecewise(
+                     (X[n, c, d*S_d + kd*D_d - P_d, h*S_h + kh*D_h - P_h, w*S_w + kw*D_w - P_w], 
+                      (d*S_d + kd*D_d - P_d >= 0) & (d*S_d + kd*D_d - P_d < Dim(X, 2)) &
+                      (h*S_h + kh*D_h - P_h >= 0) & (h*S_h + kh*D_h - P_h < Dim(X, 3)) &
+                      (w*S_w + kw*D_w - P_w >= 0) & (w*S_w + kw*D_w - P_w < Dim(X, 4))
+                     ),
+                     (neg_infinity, True)
+                   ),
+                   (kd, 0, K_d - 1), (kh, 0, K_h - 1), (kw, 0, K_w - 1)
+                 ) / K_w
+               ), K_h
+             ) * D_h
+          ) * Dim(X, 4) +
+          (w * S_w - P_w + 
+             Mod(
+               ArgMax(
+                 Piecewise(
+                   (X[n, c, d*S_d + kd*D_d - P_d, h*S_h + kh*D_h - P_h, w*S_w + kw*D_w - P_w], 
+                    (d*S_d + kd*D_d - P_d >= 0) & (d*S_d + kd*D_d - P_d < Dim(X, 2)) &
+                    (h*S_h + kh*D_h - P_h >= 0) & (h*S_h + kh*D_h - P_h < Dim(X, 3)) &
+                    (w*S_w + kw*D_w - P_w >= 0) & (w*S_w + kw*D_w - P_w < Dim(X, 4))
+                   ),
+                   (neg_infinity, True)
+                 ),
+                 (kd, 0, K_d - 1), (kh, 0, K_h - 1), (kw, 0, K_w - 1)
+               ), K_w
+             ) * D_w
+          ),
+          return_indices
+        ),
+        (0, True)
+      )
+  output_shape:
+    - ["Dim(X, 0)", "Dim(X, 1)",
+       "floor((Dim(X, 2) + 2*P_d - D_d*(K_d-1) - 1)/S_d + 1) if not ceil_mode else ceiling((Dim(X, 2) + 2*P_d - D_d*(K_d-1) - 1)/S_d + 1)",
+       "floor((Dim(X, 3) + 2*P_h - D_h*(K_h-1) - 1)/S_h + 1) if not ceil_mode else ceiling((Dim(X, 3) + 2*P_h - D_h*(K_h-1) - 1)/S_h + 1)",
+       "floor((Dim(X, 4) + 2*P_w - D_w*(K_w-1) - 1)/S_w + 1) if not ceil_mode else ceiling((Dim(X, 4) + 2*P_w - D_w*(K_w-1) - 1)/S_w + 1)"]
+    - ["Dim(X, 0)", "Dim(X, 1)",
+       "floor((Dim(X, 2) + 2*P_d - D_d*(K_d-1) - 1)/S_d + 1) if not ceil_mode else ceiling((Dim(X, 2) + 2*P_d - D_d*(K_d-1) - 1)/S_d + 1)",
+       "floor((Dim(X, 3) + 2*P_h - D_h*(K_h-1) - 1)/S_h + 1) if not ceil_mode else ceiling((Dim(X, 3) + 2*P_h - D_h*(K_h-1) - 1)/S_h + 1)",
+       "floor((Dim(X, 4) + 2*P_w - D_w*(K_w-1) - 1)/S_w + 1) if not ceil_mode else ceiling((Dim(X, 4) + 2*P_w - D_w*(K_w-1) - 1)/S_w + 1)"]
+  param_map:
+    kernel_size:    ["K_d", "K_h", "K_w"]
+    stride:         ["S_d", "S_h", "S_w"]
+    padding:        ["P_d", "P_h", "P_w"]
+    dilation:       ["D_d", "D_h", "D_w"]
+    ceil_mode:      "ceil_mode"
+    return_indices: "return_indices"
+  mechanisms:
+    - description: "Padding Constraint"
+      check: "(P_d <= floor(K_d / 2)) & (P_h <= floor(K_h / 2)) & (P_w <= floor(K_w / 2))"
+
+MaxUnpool1d:
+  description: "1D Max Unpooling. Restores values to indices locations. Handles overlapping indices by averaging to simulate assignment."
+  definition_type: "operator"
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - (Dim(X, 2) - 1) * Strd - 2 * P + K
+  math_symbol: >
+    Sum(Piecewise((X[n, c, il], Eq(A[n, c, il], l)), (0, True)), (il, 0, Dim(X, 2) - 1)) / 
+    (Sum(Piecewise((1, Eq(A[n, c, il], l)), (0, True)), (il, 0, Dim(X, 2) - 1)) + 1e-9)
+  param_map:
+    kernel_size: "K"
+    stride:      "Strd"
+    padding:     "P"
+  mechanisms:
+    - description: "The length of the data tensor (X) and index tensor (A) must be identical."
+      check: "Eq(Dim(X, 2), Dim(A, 2))"
+    - description: "Input and Indices must have at least 3 dimensions (N, C, L)."
+      check: "Rank(X) >= 3"
+
+MaxUnpool2d:
+  math_symbol: >
+    Sum(
+      Piecewise((X[n, c, ih, iw], Eq(A[n, c, ih, iw], h * Dim(Y, 3) + w)), (0, True)),
+      (ih, 0, Dim(X, 2) - 1), (iw, 0, Dim(X, 3) - 1)
+    ) / (
+      Sum(
+        Piecewise((1, Eq(A[n, c, ih, iw], h * Dim(Y, 3) + w)), (0, True)),
+        (ih, 0, Dim(X, 2) - 1), (iw, 0, Dim(X, 3) - 1)
+      ) + 1e-9
+    )
+  output_shape:
+    - "Dim(X, 0)"
+    - "Dim(X, 1)"
+    - "(Dim(X, 2) - 1) * S_h - 2 * P_h + K_h"
+    - "(Dim(X, 3) - 1) * S_w - 2 * P_w + K_w"
+  param_map:
+    kernel_size: ["K_h", "K_w"]
+    stride: ["S_h", "S_w"]
+    padding: ["P_h", "P_w"]
+  mechanisms:
+    - description: "Spatial dimensions of Input and Indices must be identical."
+      check: "Eq(Dim(X, 2), Dim(A, 2)) & Eq(Dim(X, 3), Dim(A, 3))"
+
+MaxUnpool3d:
+  description: "3D Max Unpooling. Restores values using spatial coordinates (d, h, w) mapped to flattened indices via physical dimensions Dim(Y, 3) and Dim(Y, 4)."
+  definition_type: "operator"
+  output_shape:
+    - "Dim(X, 0)"
+    - "Dim(X, 1)"
+    - "(Dim(X, 2) - 1) * S_d - 2 * P_d + K_d"
+    - "(Dim(X, 3) - 1) * S_h - 2 * P_h + K_h"
+    - "(Dim(X, 4) - 1) * S_w - 2 * P_w + K_w"
+  math_symbol: >
+    Sum(
+      Piecewise((X[n, c, id, ih, iw], Eq(A[n, c, id, ih, iw], d * Dim(Y, 3) * Dim(Y, 4) + h * Dim(Y, 4) + w)), (0, True)),
+      (id, 0, Dim(X, 2) - 1), (ih, 0, Dim(X, 3) - 1), (iw, 0, Dim(X, 4) - 1)
+    ) / (
+      Sum(
+        Piecewise((1, Eq(A[n, c, id, ih, iw], d * Dim(Y, 3) * Dim(Y, 4) + h * Dim(Y, 4) + w)), (0, True)),
+        (id, 0, Dim(X, 2) - 1), (ih, 0, Dim(X, 3) - 1), (iw, 0, Dim(X, 4) - 1)
+      ) + 1e-9
+    )
+  param_map:
+    kernel_size: ["K_d", "K_h", "K_w"]
+    stride: ["S_d", "S_h", "S_w"]
+    padding: ["P_d", "P_h", "P_w"]
+  mechanisms:
+    - description: "Spatial dimensions (D, H, W) of Input and Indices must be identical."
+      check: "Eq(Dim(X, 2), Dim(A, 2)) & Eq(Dim(X, 3), Dim(A, 3)) & Eq(Dim(X, 4), Dim(A, 4))"
+
+AvgPool1d:
+  description: "1D Average Pooling. Divisor logic strictly handles ceil_mode out-of-bounds."
+  definition_type: operator
+  math_symbol: >
+    Sum(
+      Piecewise(
+        (X[n, c, Strd * w + m - P], (Strd * w + m - P >= 0) & (Strd * w + m - P < Dim(X, 2))),
+        (0, True)
+      ),
+      (m, 0, K - 1)
+    ) / Max(
+      Sum(
+        Piecewise(
+          (1, (Strd * w + m - P >= 0) & (Strd * w + m - P < Dim(X, 2))),
+          (Piecewise((1, count_include_pad), (0, True)), (Strd * w + m - P >= -P) & (Strd * w + m - P < Dim(X, 2) + P)),
+          (0, True)
+        ),
+        (m, 0, K - 1)
+      ),
+      1
+    )
+  param_map:
+    kernel_size: "K"
+    stride: "Strd"
+    padding: "P"
+    ceil_mode: "ceil_mode"
+    count_include_pad: "count_include_pad"
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Piecewise(
+        (ceiling((Dim(X, 2) + 2 * P - K) / Strd + 1), ceil_mode),
+        (floor((Dim(X, 2) + 2 * P - K) / Strd + 1), True)
+      )
+  mechanisms:
+    - description: "Padding Constraint"
+      check: "P <= K / 2"
+    - description: "Stride Positive"
+      check: "Strd > 0"
+
+AvgPool2d:
+  description: "PyTorch 2D Average Pooling (Clean Symbols: i/j for Out, kh/kw for Kernel)."
+  definition_type: operator
+  math_symbol: >
+    Sum(
+      Sum(
+        (
+          X[n, c, 
+            Max(0, Min(S_h * i + kh - P_h, Dim(X, 2) - 1)), 
+            Max(0, Min(S_w * j + kw - P_w, Dim(X, 3) - 1))
+          ] * Piecewise(
+            (1, (S_h * i + kh - P_h >= 0) & (S_h * i + kh - P_h < Dim(X, 2)) &
+                (S_w * j + kw - P_w >= 0) & (S_w * j + kw - P_w < Dim(X, 3))),
+            (0, True)
+          )
+        ),
+        (kw, 0, K_w - 1)
+      ),
+      (kh, 0, K_h - 1)
+    ) / Piecewise(
+      (safe_div, safe_div > 0),
+      (
+        Piecewise(
+          (K_h * K_w, count_include_pad & Not(ceil_mode)),
+          (
+            (Min(S_h * i - P_h + K_h, Dim(X, 2)) - Max(S_h * i - P_h, 0)) * (Min(S_w * j - P_w + K_w, Dim(X, 3)) - Max(S_w * j - P_w, 0)),
+            True
+          )
+        ),
+        True
+      )
+    )
+  derived_variables:
+    safe_div: >
+      Piecewise(
+        (0, Eq(divisor_override, S_None)),
+        (divisor_override, True)
+      )
+  param_map:
+    kernel_size: ["K_h", "K_w"]
+    stride: ["S_h", "S_w"]
+    padding: ["P_h", "P_w"]
+    ceil_mode: "ceil_mode"
+    count_include_pad: "count_include_pad"
+    divisor_override: "divisor_override"
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Piecewise((ceiling((Dim(X, 2) + 2 * P_h - K_h) / S_h + 1), ceil_mode), (floor((Dim(X, 2) + 2 * P_h - K_h) / S_h + 1), True))
+    - Piecewise((ceiling((Dim(X, 3) + 2 * P_w - K_w) / S_w + 1), ceil_mode), (floor((Dim(X, 3) + 2 * P_w - K_w) / S_w + 1), True))
+  mechanisms:
+    - description: "Stride Positive"
+      check: "(S_h > 0) & (S_w > 0)"
+
+AvgPool3d:
+  description: "3D Average Pooling with robust dynamic divisor and ceil_mode alignment."
+  definition_type: operator
+  derived_variables:
+    safe_div: "Piecewise((0, Eq(divisor_override, S_None)), (divisor_override, True))"
+  math_symbol: >
+    Sum(Sum(Sum(
+      Piecewise(
+        (X[n, c, S_d * d + kd - P_d, S_h * h + kh - P_h, S_w * w + kw - P_w], 
+         (S_d * d + kd - P_d >= 0) & (S_d * d + kd - P_d < Dim(X, 2)) &
+         (S_h * h + kh - P_h >= 0) & (S_h * h + kh - P_h < Dim(X, 3)) &
+         (S_w * w + kw - P_w >= 0) & (S_w * w + kw - P_w < Dim(X, 4))),
+        (0, True)
+      ),
+      (kw, 0, K_w - 1)), (kh, 0, K_h - 1)), (kd, 0, K_d - 1)
+    ) / Piecewise(
+      (Max(safe_div, 1), safe_div > 0),
+      (Max(
+        Sum(Sum(Sum(
+          Piecewise(
+            (1, (S_d * d + kd - P_d >= 0) & (S_d * d + kd - P_d < Dim(X, 2)) &
+                (S_h * h + kh - P_h >= 0) & (S_h * h + kh - P_h < Dim(X, 3)) &
+                (S_w * w + kw - P_w >= 0) & (S_w * w + kw - P_w < Dim(X, 4))),
+            (Piecewise((1, count_include_pad), (0, True)), 
+                (S_d * d + kd - P_d >= -P_d) & (S_d * d + kd - P_d < Dim(X, 2) + P_d) &
+                (S_h * h + kh - P_h >= -P_h) & (S_h * h + kh - P_h < Dim(X, 3) + P_h) &
+                (S_w * w + kw - P_w >= -P_w) & (S_w * w + kw - P_w < Dim(X, 4) + P_w)),
+            (0, True)
+          ),
+          (kw, 0, K_w - 1)), (kh, 0, K_h - 1)), (kd, 0, K_d - 1)
+        ), 1), True)
+    )
+  param_map:
+    kernel_size: ["K_d", "K_h", "K_w"]
+    stride: ["S_d", "S_h", "S_w"]
+    padding: ["P_d", "P_h", "P_w"]
+    ceil_mode: "ceil_mode"
+    count_include_pad: "count_include_pad"
+    divisor_override: "divisor_override"
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Piecewise((ceiling((Dim(X, 2) + 2 * P_d - K_d) / S_d + 1), ceil_mode), (floor((Dim(X, 2) + 2 * P_d - K_d) / S_d + 1), True))
+    - Piecewise((ceiling((Dim(X, 3) + 2 * P_h - K_h) / S_h + 1), ceil_mode), (floor((Dim(X, 3) + 2 * P_h - K_h) / S_h + 1), True))
+    - Piecewise((ceiling((Dim(X, 4) + 2 * P_w - K_w) / S_w + 1), ceil_mode), (floor((Dim(X, 4) + 2 * P_w - K_w) / S_w + 1), True))
+  mechanisms:
+    - description: "Divisor constraint"
+      check: "safe_div >= 0"
+
+FractionalMaxPool2d:
+  description: "2D Fractional Max Pooling (Explicit Formula)"
+  definition_type: operator
+  math_symbol: >
+    Max(
+      Piecewise(
+        (X[n, c, floor(h * Dim(X, 2) / Dim(Y, 2)) + kh, floor(w * Dim(X, 3) / Dim(Y, 3)) + kw],
+         And(kh + floor(h * Dim(X, 2) / Dim(Y, 2)) < Dim(X, 2), 
+             kw + floor(w * Dim(X, 3) / Dim(Y, 3)) < Dim(X, 3))),
+        (-99999.0, True)
+      ),
+      (kh, 0, K_h - 1), (kw, 0, K_w - 1)
+    )
+  param_map:
+    kernel_size: ["K_h", "K_w"]
+    output_size: ["H_out", "W_out"]
+    output_ratio: ["R_h", "R_w"]
+  default_values:
+    H_out: -1
+    W_out: -1
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Piecewise((H_out, H_out > 0), (floor(Dim(X, 2) * R_h), True))
+    - Piecewise((W_out, W_out > 0), (floor(Dim(X, 3) * R_w), True))
+  mechanisms:
+    - description: "Kernel Fit Constraint"
+      check: "((K_h <= Dim(X, 2)) & (K_w <= Dim(X, 3)))"
+
+FractionalMaxPool3d:
+  description: "3D Fractional Max Pooling"
+  definition_type: operator
+  math_symbol: >
+    Max(
+      Piecewise(
+        (X[n, c, floor(d * Dim(X, 2) / Dim(Y, 2)) + kd, floor(h * Dim(X, 3) / Dim(Y, 3)) + kh, floor(w * Dim(X, 4) / Dim(Y, 4)) + kw],
+         And(
+           kd + floor(d * Dim(X, 2) / Dim(Y, 2)) < Dim(X, 2),
+           kh + floor(h * Dim(X, 3) / Dim(Y, 3)) < Dim(X, 3),
+           kw + floor(w * Dim(X, 4) / Dim(Y, 4)) < Dim(X, 4)
+         )
+        ),
+        (-99999.0, True)
+      ),
+      (kd, 0, K_d - 1), (kh, 0, K_h - 1), (kw, 0, K_w - 1)
+    )
+  param_map:
+    kernel_size: ["K_d", "K_h", "K_w"]
+    output_size: ["D_out", "H_out", "W_out"]
+    output_ratio: ["R_d", "R_h", "R_w"]
+  default_values:
+    D_out: -1
+    H_out: -1
+    W_out: -1
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Piecewise((D_out, D_out > 0), (floor(Dim(X, 2) * R_d), True))
+    - Piecewise((H_out, H_out > 0), (floor(Dim(X, 3) * R_h), True))
+    - Piecewise((W_out, W_out > 0), (floor(Dim(X, 4) * R_w), True))
+  mechanisms:
+    - description: "Kernel Fit Constraint"
+      check: "(K_d <= Dim(X, 2)) & (K_h <= Dim(X, 3)) & (K_w <= Dim(X, 4))"
+
+LPPool1d:
+  description: "1D Power-Average Pooling (Lp Norm)"
+  definition_type: operator
+  math_symbol: >
+    Sum(
+      Piecewise(
+        (Abs(X[n, c, Strd * w + m]) ** p_norm, 
+         (Strd * w + m >= 0) & (Strd * w + m < Dim(X, 2))),
+        (0, True)
+      ),
+      (m, 0, K - 1)
+    ) ** (1 / p_norm)
+  param_map:
+    norm_type: "p_norm"
+    kernel_size: "K"
+    stride: "Strd"
+    ceil_mode: "ceil_mode"
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Piecewise(
+        (ceiling((Dim(X, 2) - K) / Strd + 1), ceil_mode),
+        (floor((Dim(X, 2) - K) / Strd + 1), True)
+      )
+  mechanisms:
+    - description: "Valid Kernel"
+      check: "K > 0"
+    - description: "Valid Stride"
+      check: "Strd > 0"
+    - description: "Valid Norm"
+      check: "p_norm != 0"
+
+LPPool2d:
+  description: "2D Power-Average Pooling (Lp Norm)"
+  definition_type: operator
+  math_symbol: >
+    Sum(
+      Sum(
+        Piecewise(
+          (Abs(X[n, c, S_h * h + kh, S_w * w + kw]) ** p_norm,
+           (S_h * h + kh >= 0) & (S_h * h + kh < Dim(X, 2)) &
+           (S_w * w + kw >= 0) & (S_w * w + kw < Dim(X, 3))),
+          (0, True)
+        ),
+        (kw, 0, K_w - 1)
+      ),
+      (kh, 0, K_h - 1)
+    ) ** (1 / p_norm)
+  param_map:
+    norm_type: "p_norm"
+    kernel_size: ["K_h", "K_w"]
+    stride: ["S_h", "S_w"]
+    ceil_mode: "ceil_mode"
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    # Height
+    - Piecewise(
+        (ceiling((Dim(X, 2) - K_h) / S_h + 1), ceil_mode),
+        (floor((Dim(X, 2) - K_h) / S_h + 1), True)
+      )
+    # Width
+    - Piecewise(
+        (ceiling((Dim(X, 3) - K_w) / S_w + 1), ceil_mode),
+        (floor((Dim(X, 3) - K_w) / S_w + 1), True)
+      )
+  mechanisms:
+    - description: "Valid Kernel Size"
+      check: "(K_h > 0) & (K_w > 0)"
+    - description: "Valid Stride"
+      check: "(S_h > 0) & (S_w > 0)"
+    - description: "Valid Power Norm"
+      check: "p_norm != 0"
+
+LPPool3d:
+  description: "3D Power-Average Pooling (Lp Norm)"
+  definition_type: operator
+  math_symbol: >
+    Sum(
+      Sum(
+        Sum(
+          Piecewise(
+            (Abs(X[n, c, S_d * d + kd, S_h * h + kh, S_w * w + kw]) ** p_norm,
+             (S_d * d + kd >= 0) & (S_d * d + kd < Dim(X, 2)) &
+             (S_h * h + kh >= 0) & (S_h * h + kh < Dim(X, 3)) &
+             (S_w * w + kw >= 0) & (S_w * w + kw < Dim(X, 4))),
+            (0, True)
+          ),
+          (kw, 0, K_w - 1)
+        ),
+        (kh, 0, K_h - 1)
+      ),
+      (kd, 0, K_d - 1)
+    ) ** (1 / p_norm)
+  param_map:
+    norm_type: "p_norm"
+    kernel_size: ["K_d", "K_h", "K_w"]
+    stride: ["S_d", "S_h", "S_w"]
+    ceil_mode: "ceil_mode"
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Piecewise(
+        (ceiling((Dim(X, 2) - K_d) / S_d + 1), ceil_mode),
+        (floor((Dim(X, 2) - K_d) / S_d + 1), True)
+      )
+    - Piecewise(
+        (ceiling((Dim(X, 3) - K_h) / S_h + 1), ceil_mode),
+        (floor((Dim(X, 3) - K_h) / S_h + 1), True)
+      )
+    - Piecewise(
+        (ceiling((Dim(X, 4) - K_w) / S_w + 1), ceil_mode),
+        (floor((Dim(X, 4) - K_w) / S_w + 1), True)
+      )
+  mechanisms:
+    - description: "Valid Kernel Size"
+      check: "(K_d > 0) & (K_h > 0) & (K_w > 0)"
+    - description: "Valid Stride"
+      check: "(S_d > 0) & (S_h > 0) & (S_w > 0)"
+    - description: "Valid Power Norm"
+      check: "p_norm != 0"
+
+AdaptiveMaxPool1d:
+  description: "Applies a 1D adaptive max pooling (Optimized Local Window)."
+  definition_type: operator
+  derived_variables:
+    L_in: "Dim(X, 2)"
+    win_max: "ceiling(Dim(X, 2) / W_out)"
+  math_symbol: >
+    Max(
+      Piecewise(
+        (X[n, c, floor(w * L_in / W_out) + k], 
+         (floor(w * L_in / W_out) + k < ceiling((w + 1) * L_in / W_out)) & 
+         (floor(w * L_in / W_out) + k < L_in)),
+        (neg_infinity, True)
+      ),
+      (k, 0, win_max)
+    )
+  param_map:
+    output_size: "W_out"
+    return_indices: "return_indices"
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - W_out
+  mechanisms:
+    - description: "Valid Output Size"
+      check: "W_out > 0"
+
+AdaptiveMaxPool2d:
+  description: "Applies a 2D adaptive max pooling (Optimized Local Window)."
+  definition_type: operator
+  derived_variables:
+    H_in: "Dim(X, 2)"
+    W_in: "Dim(X, 3)"
+    win_h_max: "ceiling(Dim(X, 2) / H_out)"
+    win_w_max: "ceiling(Dim(X, 3) / W_out)"
+  math_symbol: >
+    Max(
+      Max(
+        Piecewise(
+          (X[n, c, floor(h * H_in / H_out) + kh, floor(w * W_in / W_out) + kw],
+           (floor(h * H_in / H_out) + kh < ceiling((h + 1) * H_in / H_out)) &
+           (floor(w * W_in / W_out) + kw < ceiling((w + 1) * W_in / W_out)) &
+           (floor(h * H_in / H_out) + kh < H_in) &
+           (floor(w * W_in / W_out) + kw < W_in)),
+          (neg_infinity, True)
+        ),
+        (kw, 0, win_w_max)
+      ),
+      (kh, 0, win_h_max)
+    )
+  param_map:
+    output_size: ["H_out", "W_out"]
+    return_indices: "return_indices"
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - H_out
+    - W_out
+  mechanisms:
+    - description: "Valid Output Size"
+      check: "(H_out > 0) & (W_out > 0)"
+
+AdaptiveMaxPool3d:
+  description: "Applies a 3D adaptive max pooling (Optimized Local Window)."
+  definition_type: operator
+  derived_variables:
+    D_in: "Dim(X, 2)"
+    H_in: "Dim(X, 3)"
+    W_in: "Dim(X, 4)"
+    win_d_max: "ceiling(Dim(X, 2) / D_out)"
+    win_h_max: "ceiling(Dim(X, 3) / H_out)"
+    win_w_max: "ceiling(Dim(X, 4) / W_out)"
+  math_symbol: >
+    Max(
+      Max(
+        Max(
+          Piecewise(
+            (X[n, c, floor(d * D_in / D_out) + kd, floor(h * H_in / H_out) + kh, floor(w * W_in / W_out) + kw],
+             (floor(d * D_in / D_out) + kd < ceiling((d + 1) * D_in / D_out)) &
+             (floor(h * H_in / H_out) + kh < ceiling((h + 1) * H_in / H_out)) &
+             (floor(w * W_in / W_out) + kw < ceiling((w + 1) * W_in / W_out)) &
+             (floor(d * D_in / D_out) + kd < D_in) &
+             (floor(h * H_in / H_out) + kh < H_in) &
+             (floor(w * W_in / W_out) + kw < W_in)),
+            (neg_infinity, True)
+          ),
+          (kw, 0, win_w_max)
+        ),
+        (kh, 0, win_h_max)
+      ),
+      (kd, 0, win_d_max)
+    )
+  param_map:
+    output_size: ["D_out", "H_out", "W_out"]
+    return_indices: "return_indices"
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - D_out
+    - H_out
+    - W_out
+  mechanisms:
+    - description: "Valid Output Size"
+      check: "(D_out > 0) & (H_out > 0) & (W_out > 0)"
+
+AdaptiveAvgPool1d:
+  description: "Applies a 1D adaptive average pooling."
+  definition_type: operator
+  math_symbol: >
+    Sum(
+      Piecewise(
+        (X[n, c, k], 
+         (k >= floor(w * Dim(X, 2) / W_out)) & 
+         (k < ceiling((w + 1) * Dim(X, 2) / W_out))),
+        (0, True)
+      ),
+      (k, 0, Dim(X, 2) - 1)
+    ) / (ceiling((w + 1) * Dim(X, 2) / W_out) - floor(w * Dim(X, 2) / W_out))
+  param_map:
+    output_size: "W_out"
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - W_out
+  mechanisms:
+    - description: "Valid Output Size"
+      check: "W_out > 0"
+
+AdaptiveAvgPool2d:
+  description: "Applies a 2D adaptive average pooling."
+  definition_type: operator
+  math_symbol: >
+    Sum(
+      Sum(
+        Piecewise(
+          (X[n, c, kh, kw],
+           (kh >= floor(h * Dim(X, 2) / H_out)) & 
+           (kh < ceiling((h + 1) * Dim(X, 2) / H_out)) &
+           (kw >= floor(w * Dim(X, 3) / W_out)) & 
+           (kw < ceiling((w + 1) * Dim(X, 3) / W_out))),
+          (0, True)
+        ),
+        (kw, 0, Dim(X, 3) - 1)
+      ),
+      (kh, 0, Dim(X, 2) - 1)
+    ) / (
+      (ceiling((h + 1) * Dim(X, 2) / H_out) - floor(h * Dim(X, 2) / H_out)) * (ceiling((w + 1) * Dim(X, 3) / W_out) - floor(w * Dim(X, 3) / W_out))
+    )
+  param_map:
+    output_size: ["H_out", "W_out"]
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - H_out
+    - W_out
+  mechanisms:
+    - description: "Valid Output Size"
+      check: "(H_out > 0) & (W_out > 0)"
+
+AdaptiveAvgPool3d:
+  description: "Applies a 3D adaptive average pooling."
+  definition_type: operator
+  math_symbol: >
+    Sum(
+      Sum(
+        Sum(
+          Piecewise(
+            (X[n, c, kd, kh, kw],
+             (kd >= floor(d * Dim(X, 2) / D_out)) & 
+             (kd < ceiling((d + 1) * Dim(X, 2) / D_out)) &
+             (kh >= floor(h * Dim(X, 3) / H_out)) & 
+             (kh < ceiling((h + 1) * Dim(X, 3) / H_out)) &
+             (kw >= floor(w * Dim(X, 4) / W_out)) & 
+             (kw < ceiling((w + 1) * Dim(X, 4) / W_out))),
+            (0, True)
+          ),
+          (kw, 0, Dim(X, 4) - 1)
+        ),
+        (kh, 0, Dim(X, 3) - 1)
+      ),
+      (kd, 0, Dim(X, 2) - 1)
+    ) / (
+      (ceiling((d + 1) * Dim(X, 2) / D_out) - floor(d * Dim(X, 2) / D_out)) *
+      (ceiling((h + 1) * Dim(X, 3) / H_out) - floor(h * Dim(X, 3) / H_out)) *
+      (ceiling((w + 1) * Dim(X, 4) / W_out) - floor(w * Dim(X, 4) / W_out))
+    )
+  param_map:
+    output_size: ["D_out", "H_out", "W_out"]
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - D_out
+    - H_out
+    - W_out
+  mechanisms:
+    - description: "Valid Output Size"
+      check: "(D_out > 0) & (H_out > 0) & (W_out > 0)"
+
+ReflectionPad1d:
+  description: "Pads the input tensor using reflection."
+  definition_type: operator
+  math_symbol: >
+    X[n, c, 
+      Piecewise(
+        (-1 * (w - pad_l), (w - pad_l) < 0),
+        (2 * (Dim(X, 2) - 1) - (w - pad_l), (w - pad_l) >= Dim(X, 2)),
+        (w - pad_l, True)
+      )
+    ]
+  param_map:
+    padding: [ "pad_l", "pad_r" ]
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Dim(X, 2) + pad_l + pad_r
+  mechanisms:
+    - description: "Padding size constraint"
+      check: "(pad_l < Dim(X, 2)) & (pad_r < Dim(X, 2))"
+
+ReflectionPad2d:
+  description: "Pads the input tensor using reflection."
+  definition_type: operator
+  math_symbol: >
+    X[n, c,
+      Piecewise(
+        (-1 * (h - pad_t), (h - pad_t) < 0),
+        (2 * (Dim(X, 2) - 1) - (h - pad_t), (h - pad_t) >= Dim(X, 2)),
+        (h - pad_t, True)
+      ),
+      Piecewise(
+        (-1 * (w - pad_l), (w - pad_l) < 0),
+        (2 * (Dim(X, 3) - 1) - (w - pad_l), (w - pad_l) >= Dim(X, 3)),
+        (w - pad_l, True)
+      )
+    ]
+  param_map:
+    padding: [ "pad_l", "pad_r", "pad_t", "pad_b" ]
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Dim(X, 2) + pad_t + pad_b
+    - Dim(X, 3) + pad_l + pad_r
+  mechanisms:
+    - description: "Padding size constraint"
+      check: >
+        (pad_l < Dim(X, 3)) & (pad_r < Dim(X, 3)) &
+        (pad_t < Dim(X, 2)) & (pad_b < Dim(X, 2))
+
+ReflectionPad3d:
+  description: "Pads the input tensor using reflection."
+  definition_type: operator
+  math_symbol: >
+    X[n, c,
+      Piecewise(
+        (-1 * (d - pad_f), (d - pad_f) < 0),
+        (2 * (Dim(X, 2) - 1) - (d - pad_f), (d - pad_f) >= Dim(X, 2)),
+        (d - pad_f, True)
+      ),
+      Piecewise(
+        (-1 * (h - pad_t), (h - pad_t) < 0),
+        (2 * (Dim(X, 3) - 1) - (h - pad_t), (h - pad_t) >= Dim(X, 3)),
+        (h - pad_t, True)
+      ),
+      Piecewise(
+        (-1 * (w - pad_l), (w - pad_l) < 0),
+        (2 * (Dim(X, 4) - 1) - (w - pad_l), (w - pad_l) >= Dim(X, 4)),
+        (w - pad_l, True)
+      )
+    ]
+  param_map:
+    padding: [ "pad_l", "pad_r", "pad_t", "pad_b", "pad_f", "pad_bk" ]
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Dim(X, 2) + pad_f + pad_bk
+    - Dim(X, 3) + pad_t + pad_b
+    - Dim(X, 4) + pad_l + pad_r
+  mechanisms:
+    - description: "Padding size constraint"
+      check: >
+        (pad_l < Dim(X, 4)) & (pad_r < Dim(X, 4)) &
+        (pad_t < Dim(X, 3)) & (pad_b < Dim(X, 3)) &
+        (pad_f < Dim(X, 2)) & (pad_bk < Dim(X, 2))
+
+ReplicationPad1d:
+  description: "Pads the input tensor using replication."
+  definition_type: operator
+  math_symbol: >
+    X[n, c, 
+      Piecewise(
+        (0, (w - pad_l) < 0),
+        (Dim(X, 2) - 1, (w - pad_l) >= Dim(X, 2)),
+        (w - pad_l, True)
+      )
+    ]
+  param_map:
+    padding: [ "pad_l", "pad_r" ]
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Dim(X, 2) + pad_l + pad_r
+  mechanisms:
+    - description: "Output shape definition"
+      check: "Dim(Y, 2) == Dim(X, 2) + pad_l + pad_r"
+    - description: "Output dimension constraint"
+      check: "Dim(X, 2) + pad_l + pad_r > 0"
+
+ReplicationPad2d:
+  description: "Pads the input tensor using replication."
+  definition_type: operator
+  math_symbol: >
+    X[n, c,
+      Piecewise(
+        (0, (h - pad_t) < 0),
+        (Dim(X, 2) - 1, (h - pad_t) >= Dim(X, 2)),
+        (h - pad_t, True)
+      ),
+      Piecewise(
+        (0, (w - pad_l) < 0),
+        (Dim(X, 3) - 1, (w - pad_l) >= Dim(X, 3)),
+        (w - pad_l, True)
+      )
+    ]
+  param_map:
+    padding: [ "pad_l", "pad_r", "pad_t", "pad_b" ]
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Dim(X, 2) + pad_t + pad_b
+    - Dim(X, 3) + pad_l + pad_r
+  mechanisms:
+    - description: "Output shape definition"
+      check: >
+        (Dim(Y, 2) == Dim(X, 2) + pad_t + pad_b) &
+        (Dim(Y, 3) == Dim(X, 3) + pad_l + pad_r)
+    - description: "Output dimension constraint"
+      check: >
+        (Dim(X, 2) + pad_t + pad_b > 0) &
+        (Dim(X, 3) + pad_l + pad_r > 0)
+
+ReplicationPad3d:
+  description: "Pads the input tensor using replication."
+  definition_type: operator
+  math_symbol: >
+    X[n, c,
+      Piecewise(
+        (0, (d - pad_f) < 0),
+        (Dim(X, 2) - 1, (d - pad_f) >= Dim(X, 2)),
+        (d - pad_f, True)
+      ),
+      Piecewise(
+        (0, (h - pad_t) < 0),
+        (Dim(X, 3) - 1, (h - pad_t) >= Dim(X, 3)),
+        (h - pad_t, True)
+      ),
+      Piecewise(
+        (0, (w - pad_l) < 0),
+        (Dim(X, 4) - 1, (w - pad_l) >= Dim(X, 4)),
+        (w - pad_l, True)
+      )
+    ]
+  param_map:
+    padding: [ "pad_l", "pad_r", "pad_t", "pad_b", "pad_f", "pad_bk" ]
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Dim(X, 2) + pad_f + pad_bk
+    - Dim(X, 3) + pad_t + pad_b
+    - Dim(X, 4) + pad_l + pad_r
+  mechanisms:
+    - description: "Output shape definition"
+      check: >
+        (Dim(Y, 2) == Dim(X, 2) + pad_f + pad_bk) &
+        (Dim(Y, 3) == Dim(X, 3) + pad_t + pad_b) &
+        (Dim(Y, 4) == Dim(X, 4) + pad_l + pad_r)
+    - description: "Output dimension constraint"
+      check: >
+        (Dim(X, 2) + pad_f + pad_bk > 0) &
+        (Dim(X, 3) + pad_t + pad_b > 0) &
+        (Dim(X, 4) + pad_l + pad_r > 0)
+
+ZeroPad1d:
+  description: "Pads the input tensor boundaries with zero."
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+      (0, (w - pad_l) < 0),
+      (0, (w - pad_l) >= Dim(X, 2)),
+      (X[n, c, w - pad_l], True)
+    )
+  param_map:
+    padding: [ "pad_l", "pad_r" ]
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Dim(X, 2) + pad_l + pad_r
+  mechanisms:
+    - description: "Output shape definition"
+      check: "Dim(Y, 2) == Dim(X, 2) + pad_l + pad_r"
+    - description: "Non-negative padding constraint"
+      check: "(pad_l >= 0) & (pad_r >= 0)"
+
+ZeroPad2d:
+  description: "Pads the input tensor boundaries with zero."
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+      (0, (h - pad_t) < 0),
+      (0, (h - pad_t) >= Dim(X, 2)),
+      (0, (w - pad_l) < 0),
+      (0, (w - pad_l) >= Dim(X, 3)),
+      (X[n, c, h - pad_t, w - pad_l], True)
+    )
+  param_map:
+    padding: [ "pad_l", "pad_r", "pad_t", "pad_b" ]
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Dim(X, 2) + pad_t + pad_b
+    - Dim(X, 3) + pad_l + pad_r
+  mechanisms:
+    - description: "Output shape definition"
+      check: >
+        (Dim(Y, 2) == Dim(X, 2) + pad_t + pad_b) &
+        (Dim(Y, 3) == Dim(X, 3) + pad_l + pad_r)
+    - description: "Non-negative padding constraint"
+      check: >
+        (pad_l >= 0) & (pad_r >= 0) &
+        (pad_t >= 0) & (pad_b >= 0)
+
+ZeroPad3d:
+  description: "Pads the input tensor boundaries with zero."
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+      (0, (d - pad_f) < 0),
+      (0, (d - pad_f) >= Dim(X, 2)),
+      (0, (h - pad_t) < 0),
+      (0, (h - pad_t) >= Dim(X, 3)),
+      (0, (w - pad_l) < 0),
+      (0, (w - pad_l) >= Dim(X, 4)),
+      (X[n, c, d - pad_f, h - pad_t, w - pad_l], True)
+    )
+  param_map:
+    padding: [ "pad_l", "pad_r", "pad_t", "pad_b", "pad_f", "pad_bk" ]
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Dim(X, 2) + pad_f + pad_bk
+    - Dim(X, 3) + pad_t + pad_b
+    - Dim(X, 4) + pad_l + pad_r
+  mechanisms:
+    - description: "Output shape definition"
+      check: >
+        (Dim(Y, 2) == Dim(X, 2) + pad_f + pad_bk) &
+        (Dim(Y, 3) == Dim(X, 3) + pad_t + pad_b) &
+        (Dim(Y, 4) == Dim(X, 4) + pad_l + pad_r)
+    - description: "Non-negative padding constraint"
+      check: >
+        (pad_l >= 0) & (pad_r >= 0) &
+        (pad_t >= 0) & (pad_b >= 0) &
+        (pad_f >= 0) & (pad_bk >= 0)
+
+ConstantPad1d:
+  description: "Pads the input tensor boundaries with a constant value."
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+      (pad_val, (w - pad_l) < 0),
+      (pad_val, (w - pad_l) >= Dim(X, 2)),
+      (X[n, c, w - pad_l], True)
+    )
+  param_map:
+    padding: [ "pad_l", "pad_r" ]
+    value: "pad_val"
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Dim(X, 2) + pad_l + pad_r
+  mechanisms:
+    - description: "Output shape definition"
+      check: "Dim(Y, 2) == Dim(X, 2) + pad_l + pad_r"
+    - description: "Non-negative padding constraint"
+      check: "(pad_l >= 0) & (pad_r >= 0)"
+
+ConstantPad2d:
+  description: "Pads the input tensor boundaries with a constant value."
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+      (pad_val, (h - pad_t) < 0),
+      (pad_val, (h - pad_t) >= Dim(X, 2)),
+      (pad_val, (w - pad_l) < 0),
+      (pad_val, (w - pad_l) >= Dim(X, 3)),
+      (X[n, c, h - pad_t, w - pad_l], True)
+    )
+  param_map:
+    padding: [ "pad_l", "pad_r", "pad_t", "pad_b" ]
+    value: "pad_val"
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Dim(X, 2) + pad_t + pad_b
+    - Dim(X, 3) + pad_l + pad_r
+  mechanisms:
+    - description: "Output shape definition"
+      check: >
+        (Dim(Y, 2) == Dim(X, 2) + pad_t + pad_b) &
+        (Dim(Y, 3) == Dim(X, 3) + pad_l + pad_r)
+    - description: "Non-negative padding constraint"
+      check: >
+        (pad_l >= 0) & (pad_r >= 0) &
+        (pad_t >= 0) & (pad_b >= 0)
+
+ConstantPad3d:
+  description: "Pads the input tensor boundaries with a constant value."
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+      (pad_val, (d - pad_f) < 0),
+      (pad_val, (d - pad_f) >= Dim(X, 2)),
+      (pad_val, (h - pad_t) < 0),
+      (pad_val, (h - pad_t) >= Dim(X, 3)),
+      (pad_val, (w - pad_l) < 0),
+      (pad_val, (w - pad_l) >= Dim(X, 4)),
+      (X[n, c, d - pad_f, h - pad_t, w - pad_l], True)
+    )
+  param_map:
+    padding: [ "pad_l", "pad_r", "pad_t", "pad_b", "pad_f", "pad_bk" ]
+    value: "pad_val"
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Dim(X, 2) + pad_f + pad_bk
+    - Dim(X, 3) + pad_t + pad_b
+    - Dim(X, 4) + pad_l + pad_r
+  mechanisms:
+    - description: "Output shape definition"
+      check: >
+        (Dim(Y, 2) == Dim(X, 2) + pad_f + pad_bk) &
+        (Dim(Y, 3) == Dim(X, 3) + pad_t + pad_b) &
+        (Dim(Y, 4) == Dim(X, 4) + pad_l + pad_r)
+    - description: "Non-negative padding constraint"
+      check: >
+        (pad_l >= 0) & (pad_r >= 0) &
+        (pad_t >= 0) & (pad_b >= 0) &
+        (pad_f >= 0) & (pad_bk >= 0)
+
+CircularPad1d:
+  description: "Pads the input tensor using circular wrapping (modulo)."
+  definition_type: operator
+  math_symbol: >
+    X[n, c, Mod(w - pad_l, Dim(X, 2))]
+  param_map:
+    padding: [ "pad_l", "pad_r" ]
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Dim(X, 2) + pad_l + pad_r
+  mechanisms:
+    - description: "Output shape definition"
+      check: "Dim(Y, 2) == Dim(X, 2) + pad_l + pad_r"
+    - description: "Padding size constraint (must be less than input dim)"
+      check: "(pad_l < Dim(X, 2)) & (pad_r < Dim(X, 2))"
+    - description: "Non-negative padding constraint"
+      check: "(pad_l >= 0) & (pad_r >= 0)"
+
+CircularPad2d:
+  description: "Pads the input tensor using circular wrapping (modulo)."
+  definition_type: operator
+  math_symbol: >
+    X[n, c, 
+      Mod(h - pad_t, Dim(X, 2)), 
+      Mod(w - pad_l, Dim(X, 3))
+    ]
+  param_map:
+    padding: [ "pad_l", "pad_r", "pad_t", "pad_b" ]
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Dim(X, 2) + pad_t + pad_b
+    - Dim(X, 3) + pad_l + pad_r
+  mechanisms:
+    - description: "Padding size constraint (must be less than input dim)"
+      check: >
+        (pad_l < Dim(X, 3)) & (pad_r < Dim(X, 3)) &
+        (pad_t < Dim(X, 2)) & (pad_b < Dim(X, 2))
+
+CircularPad3d:
+  description: "Pads the input tensor using circular wrapping (modulo)."
+  definition_type: operator
+  math_symbol: >
+    X[n, c, 
+      Mod(d - pad_f, Dim(X, 2)),
+      Mod(h - pad_t, Dim(X, 3)), 
+      Mod(w - pad_l, Dim(X, 4))
+    ]
+  param_map:
+    padding: [ "pad_l", "pad_r", "pad_t", "pad_b", "pad_f", "pad_bk" ]
+  output_shape:
+    - Dim(X, 0)
+    - Dim(X, 1)
+    - Dim(X, 2) + pad_f + pad_bk
+    - Dim(X, 3) + pad_t + pad_b
+    - Dim(X, 4) + pad_l + pad_r
+  mechanisms:
+    - description: "Padding size constraint (must be less than input dim)"
+      check: >
+        (pad_l < Dim(X, 4)) & (pad_r < Dim(X, 4)) &
+        (pad_t < Dim(X, 3)) & (pad_b < Dim(X, 3)) &
+        (pad_f < Dim(X, 2)) & (pad_bk < Dim(X, 2))
+
+ELU:
+  description: "Applies the Exponential Linear Unit (ELU) function element-wise."
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+      (X, X > 0),
+      (alpha * (exp(X) - 1), True)
+    )
+  param_map:
+    alpha: "alpha"
+  mechanisms:
+    - description: "Rank preservation check"
+      check: "Rank(Y) == Rank(X)"
+    - description: "Shape preservation check"
+      check: "Shape(Y) == Shape(X)"
+
+Hardshrink:
+  description: "Applies the hard shrinkage function element-wise."
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+      (X, X > alpha),
+      (X, X < -alpha),
+      (0, True)
+    )
+  param_map:
+    lambd: "alpha"
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Y) == Shape(X)"
+    - description: "Non-negative threshold"
+      check: "alpha >= 0"
+
+Hardsigmoid:
+  description: "Applies the Hardsigmoid function element-wise."
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+      (0, X <= -3),
+      (1, X >= 3),
+      (X / 6 + 0.5, True)
+    )
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Y) == Shape(X)"
+
+Hardtanh:
+  description: "Applies the HardTanh function element-wise."
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+      (max_val, X > max_val),
+      (min_val, X < min_val),
+      (X, True)
+    )
+  param_map:
+    min_val: "min_val"
+    max_val: "max_val"
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Y) == Shape(X)"
+    - description: "Bound consistency"
+      check: "min_val <= max_val"
+
+Hardswish:
+  description: "Applies the Hardswish function element-wise."
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+      (0, X <= -3),
+      (X, X >= 3),
+      (X * (X + 3) / 6, True)
+    )
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Y) == Shape(X)"
+
+LeakyReLU:
+  description: "Applies the Leaky ReLU function element-wise."
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+      (X, X >= 0),
+      (alpha * X, True)
+    )
+  param_map:
+    negative_slope: "alpha"
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Y) == Shape(X)"
+
+LogSigmoid:
+  description: "Applies the element-wise function: LogSigmoid(x) = log(1 / (1 + exp(-x)))."
+  definition_type: operator
+  math_symbol: >
+    Log(1 / (1 + Exp(-X)))
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Y) == Shape(X)"
+
+ReLU:
+  description: "Applies the rectified linear unit function element-wise."
+  definition_type: operator
+  math_symbol: >
+    Piecewise((X, X >= 0), (0, True))
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Y) == Shape(X)"
+
+Sigmoid:
+  description: "Standard Sigmoid: 1 / (1 + exp(-x))"
+  definition_type: operator
+  math_symbol: "1 / (1 + Exp(-X))"
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Y) == Shape(X)"
+
+SiLU:
+  description: "SiLU/Swish: x * sigmoid(x)"
+  definition_type: operator
+  math_symbol: "X * (1 / (1 + Exp(-X)))"
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Y) == Shape(X)"
+
+Mish:
+  description: "Mish: x * tanh(softplus(x))"
+  definition_type: operator
+
+
+  math_symbol: >
+    X * ((Exp(Log(1 + Exp(X))) - Exp(-Log(1 + Exp(X)))) / 
+         (Exp(Log(1 + Exp(X))) + Exp(-Log(1 + Exp(X)))))
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Output) == Shape(X)"
+
+Tanh:
+  description: "Standard Tanh Expanded"
+  definition_type: operator
+  math_symbol: "(Exp(X) - Exp(-X)) / (Exp(X) + Exp(-X))"
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Output) == Shape(X)"
+
+Tanhshrink:
+  description: "x - tanh(x) Expanded"
+  definition_type: operator
+  math_symbol: "X - ((Exp(X) - Exp(-X)) / (Exp(X) + Exp(-X)))"
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Output) == Shape(X)"
+
+Softsign:
+  description: "x / (1 + |x|)"
+  definition_type: operator
+  math_symbol: "X / (1 + Abs(X))"
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Y) == Shape(X)"
+
+ReLU6:
+  description: "Clamped ReLU: min(max(0, x), 6)"
+  definition_type: operator
+  math_symbol: "Piecewise((6, X > 6), (0, X < 0), (X, True))"
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Y) == Shape(X)"
+
+SELU:
+  description: "Scaled Exponential Linear Unit"
+  definition_type: operator
+  math_symbol: "1.0507009873554805 * Piecewise((X, X > 0), (1.6732632423543772 * (Exp(X) - 1), True))"
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Y) == Shape(X)"
+
+PReLU:
+  description: "Parametric ReLU with support for Shared (1) and Per-channel (C) weights."
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+      # Rank 4 (NCHW)
+      (Y[n, c, h, w] == Piecewise(
+        (X[n, c, h, w], X[n, c, h, w] >= 0), 
+        (Piecewise((W[0] * X[n, c, h, w], Eq(num_parameters, 1)), (W[c] * X[n, c, h, w], True)), True)
+      ), Rank(X) == 4),
+      
+      # Rank 2 (NC)
+      (Y[n, c] == Piecewise(
+        (X[n, c], X[n, c] >= 0), 
+        (Piecewise((W[0] * X[n, c], Eq(num_parameters, 1)), (W[c] * X[n, c], True)), True)
+      ), Rank(X) == 2),
+      
+      # Rank 3 (NCL)
+      (Y[n, c, l] == Piecewise(
+        (X[n, c, l], X[n, c, l] >= 0), 
+        (Piecewise((W[0] * X[n, c, l], Eq(num_parameters, 1)), (W[c] * X[n, c, l], True)), True)
+      ), Rank(X) == 3),
+
+      # Rank 5 (NCDHW)
+      (Y[n, c, d, h, w] == Piecewise(
+        (X[n, c, d, h, w], X[n, c, d, h, w] >= 0), 
+        (Piecewise((W[0] * X[n, c, d, h, w], Eq(num_parameters, 1)), (W[c] * X[n, c, d, h, w], True)), True)
+      ), Rank(X) == 5)
+    )
+  param_map:
+    num_parameters: "num_parameters"
+  mechanisms:
+    - description: "Parameter dimension constraint"
+      check: "(Eq(num_parameters, 1)) | (Eq(num_parameters, Dim(X, 1)))"
+
+RReLU:
+  description: "Randomized Leaky ReLU (Eval mode)"
+  definition_type: operator
+  math_symbol: "Piecewise((X, X >= 0), (X * (min_val + max_val) / 2, True))"
+  param_map:
+    lower: "min_val"
+    upper: "max_val"
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Y) == Shape(X)"
+
+CELU:
+  description: "Continuously Differentiable ELU"
+  definition_type: operator
+  math_symbol: "Piecewise((X, X >= 0), (alpha * (Exp(X / alpha) - 1), True))"
+  param_map:
+    alpha: "alpha"
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Y) == Shape(X)"
+    - description: "Alpha constraint"
+      check: "alpha != 0"
+
+GELU:
+  description: "Gaussian Error Linear Units (Expanded Tanh)"
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+      (0.5 * X * (1 + Erf(X / Sqrt(2))), Eq(approximate, 'none')),
+      (0.5 * X * (1 + (Exp(Sqrt(2/Pi) * (X + 0.044715 * X**3)) - Exp(-Sqrt(2/Pi) * (X + 0.044715 * X**3))) / 
+                    (Exp(Sqrt(2/Pi) * (X + 0.044715 * X**3)) + Exp(-Sqrt(2/Pi) * (X + 0.044715 * X**3)))), Eq(approximate, 'tanh'))
+    )
+  param_map:
+    approximate: "approximate"
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Output) == Shape(X)"
+
+Softplus:
+  definition_type: operator
+  math_symbol: "Piecewise((X, (alpha * X) > max_val), (1/alpha * Log(1 + Exp(alpha * X)), True))"
+  param_map:
+    beta: "alpha"
+    threshold: "max_val"
+  mechanisms:
+    - description: "Non-zero alpha"
+      check: "alpha != 0"
+
+Softshrink:
+  definition_type: operator
+  math_symbol: "Piecewise((X - alpha, X > alpha), (X + alpha, X < -alpha), (0, True))"
+  param_map:
+    lambd: "alpha"
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Y) == Shape(X)"
+    - description: "Non-negative alpha"
+      check: "alpha >= 0"
+
+Threshold:
+  definition_type: operator
+  math_symbol: "Piecewise((X, X > min_val), (alpha, True))"
+  param_map:
+    threshold: "min_val"
+    value: "alpha"
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Y) == Shape(X)"
+
+GLU:
+  description: "Gated Linear Unit. Standardized Coordinate System (n, c, d, h, w)."
+  math_symbol: >
+    Piecewise(
+      (
+        X[n, c, d, h, w] * (1 / (1 + Exp(-X[n, c + Dim(X, 1)/2, d, h, w]))),
+        (Rank(X) == 5) & ((dim == 1) | (dim == -4))
+      ),
+      (
+        X[n, c, h, w] * (1 / (1 + Exp(-X[n, c + Dim(X, 1)/2, h, w]))),
+        (Rank(X) == 4) & ((dim == 1) | (dim == -3))
+      ),
+      (
+        X[n, c, l] * (1 / (1 + Exp(-X[n, c + Dim(X, 1)/2, l]))),
+        (Rank(X) == 3) & ((dim == 1) | (dim == -2))
+      ),
+      (
+        X[n, c] * (1 / (1 + Exp(-X[n, c + Dim(X, 1)/2]))),
+        (Rank(X) == 2) & ((dim == 1) | (dim == -1))
+      ),
+      (
+        X[n, c, d, h, w] * (1 / (1 + Exp(-X[n, c, d, h, w + Dim(X, 4)/2]))),
+        (Rank(X) == 5) & ((dim == 4) | (dim == -1))
+      ),
+      (
+        X[n, c, h, w] * (1 / (1 + Exp(-X[n, c, h, w + Dim(X, 3)/2]))),
+        (Rank(X) == 4) & ((dim == 3) | (dim == -1))
+      ),
+      (
+        X[n, c, l] * (1 / (1 + Exp(-X[n, c, l + Dim(X, 2)/2]))),
+        (Rank(X) == 3) & ((dim == 2) | (dim == -1))
+      )
+    )
+  param_map:
+    dim: "dim"
+  mechanisms:
+    - description: "Divisibility check"
+      check: "Dim(X, dim) % 2 == 0"
+    - description: "Rank support"
+      check: "Rank(X) >= 2 and Rank(X) <= 5"
+
+Softmax:
+  description: "Applies the Softmax function to an n-dimensional input Tensor."
+  definition_type: operator
+  math_symbol: >
+    Exp(X) / Sum(Exp(X), dim)
+  param_map:
+    dim: "dim"
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Output) == Shape(X)"
+
+Softmin:
+  description: "Mathematically equivalent to Softmax(-x)."
+  definition_type: operator
+  math_symbol: >
+    Exp(-X) / Sum(Exp(-X), dim)
+  param_map:
+    dim: "dim"
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Output) == Shape(X)"
+
+Softmax2d:
+  description: "Applies SoftMax over features to each spatial location (dim=1)."
+  definition_type: operator
+  math_symbol: >
+    Exp(X) / Sum(Exp(X), 1)
+  mechanisms:
+    - description: "Rank check for 2D spatial context"
+      check: "Rank(X) >= 2"
+    - description: "Shape preservation"
+      check: "Shape(Output) == Shape(X)"
+
+LogSoftmax:
+  description: "Applies the LogSoftmax function."
+  definition_type: operator
+  math_symbol: >
+    Log(Exp(X) / Sum(Exp(X), dim))
+  param_map:
+    dim: "dim"
+  mechanisms:
+    - description: "Shape preservation"
+      check: "Shape(Output) == Shape(X)"
+
+BatchNorm1d: &BatchNorm1d
+  description: "Applies Batch Normalization (Inference Mode)."
+  math_symbol: >
+    ((X[n, c, l] - running_mean[c]) / Sqrt(running_var[c] + epsilon)) * 
+    Piecewise((W[c], affine), (1, True)) + 
+    Piecewise((B[c], affine), (0, True))
+  param_map:
+    num_features: "cin"
+    eps: "epsilon"
+    momentum: "momentum"
+    affine: "affine"
+    track_running_stats: "track_running_stats"
+  mechanisms:
+    - description: "Channel dimension matching"
+      check: "Not(affine) | (Dim(W, 0) == cin)"
+    - description: "Input rank check"
+      check: "Rank(X) == 3"
+
+BatchNorm2d: &BatchNorm2d
+  description: "Applies Batch Normalization over a 4D input (N, C, H, W) in inference mode."
+  math_symbol: >
+    ((X[n, c, h, w] - running_mean[c]) / Sqrt(running_var[c] + epsilon)) * 
+    Piecewise((W[c], affine), (1, True)) + 
+    Piecewise((B[c], affine), (0, True))
+  param_map:
+    num_features: "cin"
+    eps: "epsilon"
+    momentum: "momentum"
+    affine: "affine"
+    track_running_stats: "track_running_stats"
+    training: "training"
+  mechanisms:
+    - description: "Channel dimension matching"
+      check: "Not(affine) | (Dim(W, 0) == cin)"
+    - description: "Input rank check"
+      check: "Rank(X) == 4"
+
+BatchNorm3d: &BatchNorm3d
+  description: "Applies Batch Normalization (Inference Mode) over a 5D input (N, C, D, H, W)."
+  math_symbol: >
+    ((X[n, c, d, h, w] - running_mean[c]) / Sqrt(running_var[c] + epsilon)) * 
+    Piecewise((W[c], affine), (1, True)) + 
+    Piecewise((B[c], affine), (0, True))
+  param_map:
+    num_features: "cin"
+    eps: "epsilon"
+    momentum: "momentum"
+    affine: "affine"
+    track_running_stats: "track_running_stats"
+  mechanisms:
+    - description: "Channel dimension matching"
+      check: "Not(affine) | (Dim(W, 0) == cin)"
+    - description: "Input rank check"
+      check: "Rank(X) == 5"
+
+LazyBatchNorm1d:
+  <<: *BatchNorm1d
+  description: "Applies Batch Normalization (1D) with lazy initialization."
+  param_map:
+    eps: "epsilon"
+    momentum: "momentum"
+    affine: "affine"
+    track_running_stats: "track_running_stats"
+  mechanisms:
+    - description: "Channel dimension matching"
+      check: "Not(affine) | (Dim(W, 0) == Dim(X, 1))"
+    - description: "Input rank check"
+      check: "Rank(X) == 3"
+
+LazyBatchNorm2d:
+  <<: *BatchNorm2d
+  description: "Applies Batch Normalization (2D) with lazy initialization."
+  param_map:
+    eps: "epsilon"
+    momentum: "momentum"
+    affine: "affine"
+    track_running_stats: "track_running_stats"
+  mechanisms:
+    - description: "Channel dimension matching"
+      check: "Not(affine) | (Dim(W, 0) == Dim(X, 1))"
+    - description: "Input rank check"
+      check: "Rank(X) == 4"
+
+LazyBatchNorm3d:
+  <<: *BatchNorm3d
+  description: "Applies Batch Normalization (3D) with lazy initialization."
+  param_map:
+    eps: "epsilon"
+    momentum: "momentum"
+    affine: "affine"
+    track_running_stats: "track_running_stats"
+  mechanisms:
+    - description: "Channel dimension matching"
+      check: "Not(affine) | (Dim(W, 0) == Dim(X, 1))"
+    - description: "Input rank check"
+      check: "Rank(X) == 5"
+
+GroupNorm:
+  description: "Applies Group Normalization (N, C, ...)."
+  math_symbol: >
+    (Reshape(
+      (Reshape(X, (Dim(X, 0), G, -1)) - Reshape(mu, (Dim(X, 0), G, 1))) / Sqrt(Reshape(sigma2, (Dim(X, 0), G, 1)) + epsilon), 
+      Shape(X)
+    )) * Piecewise((W, affine), (1, True)) + Piecewise((B, affine), (0, True))
+  derived_variables:
+    mu: "Mean(Reshape(X, (Dim(X, 0), G, -1)), 2)"
+    sigma2: "Var(Reshape(X, (Dim(X, 0), G, -1)), 2)"
+  param_map:
+    num_groups: "G"
+    num_channels: "cin"
+    eps: "epsilon"
+    affine: "affine"
+  mechanisms:
+    - description: "Group divisibility check"
+      check: "cin % G == 0"
+    - description: "Channel matching"
+      check: "Not(affine) | (Dim(W, 0) == cin)"
+
+SyncBatchNorm:
+  description: "Applies Batch Normalization with global statistics synchronization (Behaves like BN in Eval)."
+  math_symbol: >
+    ((X - mu) / Sqrt(sigma2 + epsilon)) * Piecewise((W, affine), (1, True)) + Piecewise((B, affine), (0, True))
+  derived_variables:
+    mu: >
+      Piecewise(
+        (running_mean, track_running_stats),
+        (Mean(X, (0, 2, 3)), True)
+      )
+    sigma2: >
+      Piecewise(
+        (running_var, track_running_stats),
+        (Var(X, (0, 2, 3)), True)
+      )
+  param_map:
+    num_features:        "cin"
+    eps:                 "epsilon"
+    momentum:            "momentum"
+    affine:              "affine"
+    track_running_stats: "track_running_stats"
+    process_group:       "process_group"
+  mechanisms:
+    - description: "Channel matching"
+      check: "Not(affine) | (Dim(W, 0) == cin)"
+    - description: "Input Rank Check (Expect 4D NCHW)"
+      check: "Rank(X) == 4"
+
+InstanceNorm1d: &InstanceNorm1d
+  description: "PyTorch 1D Instance Normalization (N, C, L)."
+  math_symbol: >
+    (
+      ((X - Reshape(mu, (Dim(X, 0), Dim(X, 1), 1))) / 
+       Sqrt(Reshape(sigma2, (Dim(X, 0), Dim(X, 1), 1)) + epsilon)) * Piecewise((Reshape(W, (1, Dim(X, 1), 1)), affine), (1, True)) + 
+      Piecewise((Reshape(B, (1, Dim(X, 1), 1)), affine), (0, True))
+    )
+  derived_variables:
+    mu: "Mean(X, 2)"
+    sigma2: "Var(X, 2)"
+  param_map:
+    num_features: "cin"
+    eps: "epsilon"
+    momentum: "momentum"
+    affine: "affine"
+    track_running_stats: "track_running_stats"
+  mechanisms:
+    - description: "Input Rank Check (NCL)"
+      check: "Rank(X) == 3"
+    - description: "Channel Parameter Matching"
+      check: "Not(affine) | (Dim(W, 0) == cin)"
+
+InstanceNorm2d: &InstanceNorm2d
+  description: "PyTorch 2D Instance Normalization (N, C, H, W)."
+  math_symbol: >
+    (
+      ((X - Reshape(mu, (Dim(X, 0), Dim(X, 1), 1, 1))) / 
+       Sqrt(Reshape(sigma2, (Dim(X, 0), Dim(X, 1), 1, 1)) + epsilon)) * Piecewise((Reshape(W, (1, Dim(X, 1), 1, 1)), affine), (1, True)) + 
+      Piecewise((Reshape(B, (1, Dim(X, 1), 1, 1)), affine), (0, True))
+    )
+  derived_variables:
+    mu: "Mean(X, (2, 3))"
+    sigma2: "Var(X, (2, 3))"
+  param_map:
+    num_features: "cin"
+    eps: "epsilon"
+    momentum: "momentum"
+    affine: "affine"
+    track_running_stats: "track_running_stats"
+  mechanisms:
+    - description: "Input Rank Check (NCHW)"
+      check: "Rank(X) == 4"
+    - description: "Channel Parameter Matching"
+      check: "Not(affine) | (Dim(W, 0) == cin)"
+
+InstanceNorm3d: &InstanceNorm3d
+  description: "PyTorch 3D Instance Normalization (N, C, D, H, W)."
+  math_symbol: >
+    (
+      ((X - Reshape(mu, (Dim(X, 0), Dim(X, 1), 1, 1, 1))) / 
+       Sqrt(Reshape(sigma2, (Dim(X, 0), Dim(X, 1), 1, 1, 1)) + epsilon)) * Piecewise((Reshape(W, (1, Dim(X, 1), 1, 1, 1)), affine), (1, True)) + 
+      Piecewise((Reshape(B, (1, Dim(X, 1), 1, 1, 1)), affine), (0, True))
+    )
+  derived_variables:
+    mu: "Mean(X, (2, 3, 4))"
+    sigma2: "Var(X, (2, 3, 4))"
+  param_map:
+    num_features: "cin"
+    eps: "epsilon"
+    momentum: "momentum"
+    affine: "affine"
+    track_running_stats: "track_running_stats"
+  mechanisms:
+    - description: "Input Rank Check (NCDHW)"
+      check: "Rank(X) == 5"
+    - description: "Channel Parameter Matching"
+      check: "Not(affine) | (Dim(W, 0) == cin)"
+
+LazyInstanceNorm1d:
+  <<: *InstanceNorm1d
+  description: "PyTorch Lazy 1D Instance Normalization (Runtime C inferred)."
+  math_symbol: >
+    (
+      ((X - Reshape(mu, (Dim(X, 0), Dim(X, 1), 1))) / 
+        Sqrt(Reshape(sigma2, (Dim(X, 0), Dim(X, 1), 1)) + epsilon)) * Piecewise((Reshape(W, (1, Dim(X, 1), 1)), affine), (1, True)) + 
+        Piecewise((Reshape(B, (1, Dim(X, 1), 1)), affine), (0, True))
+    )
+  param_map:
+    eps: "epsilon"
+    momentum: "momentum"
+    affine: "affine"
+    track_running_stats: "track_running_stats"
+  mechanisms:
+    - description: "Input Rank Check (NCL)"
+      check: "Rank(X) == 3"
+    - description: "Lazy Channel Parameter Matching"
+      check: "Not(affine) | (Dim(W, 0) == Dim(X, 1))"
+
+LazyInstanceNorm2d:
+  <<: *InstanceNorm2d
+  description: "PyTorch Lazy 2D Instance Normalization (Runtime C inferred)."
+  math_symbol: >
+    (
+      ((X - Reshape(mu, (Dim(X, 0), Dim(X, 1), 1, 1))) / 
+       Sqrt(Reshape(sigma2, (Dim(X, 0), Dim(X, 1), 1, 1)) + epsilon)) * Piecewise((Reshape(W, (1, Dim(X, 1), 1, 1)), affine), (1, True)) + 
+      Piecewise((Reshape(B, (1, Dim(X, 1), 1, 1)), affine), (0, True))
+    )
+  param_map:
+    eps: "epsilon"
+    momentum: "momentum"
+    affine: "affine"
+    track_running_stats: "track_running_stats"
+  mechanisms:
+    - description: "Input Rank Check (NCHW)"
+      check: "Rank(X) == 4"
+    - description: "Lazy Channel Parameter Matching"
+      check: "Not(affine) | (Dim(W, 0) == Dim(X, 1))"
+
+LazyInstanceNorm3d:
+  <<: *InstanceNorm3d
+  description: "PyTorch Lazy 3D Instance Normalization (Runtime C inferred)."
+  math_symbol: >
+    (
+      ((X - Reshape(mu, (Dim(X, 0), Dim(X, 1), 1, 1, 1))) / 
+       Sqrt(Reshape(sigma2, (Dim(X, 0), Dim(X, 1), 1, 1, 1)) + epsilon)) * Piecewise((Reshape(W, (1, Dim(X, 1), 1, 1, 1)), affine), (1, True)) + 
+      Piecewise((Reshape(B, (1, Dim(X, 1), 1, 1, 1)), affine), (0, True))
+    )
+  param_map:
+    eps: "epsilon"
+    momentum: "momentum"
+    affine: "affine"
+    track_running_stats: "track_running_stats"
+  mechanisms:
+    - description: "Input Rank Check (NCDHW)"
+      check: "Rank(X) == 5"
+    - description: "Lazy Channel Parameter Matching"
+      check: "Not(affine) | (Dim(W, 0) == Dim(X, 1))"
+
+LayerNorm:
+  description: "PyTorch Layer Normalization."
+  math_symbol: >
+    ((X - mu) / Sqrt(sigma2 + epsilon)) * Piecewise((W, elementwise_affine), (1, True)) + Piecewise((B, bias), (0, True))
+  derived_variables:
+    reduce_axes: "tuple(range(-len(normalized_shape), 0))"
+    mu: "Mean(X, reduce_axes)"
+    sigma2: "Var(X, reduce_axes)"
+  param_map:
+    normalized_shape: "normalized_shape"
+    eps: "epsilon"
+    elementwise_affine: "elementwise_affine"
+    bias: "bias"
+  mechanisms:
+    - description: "Input tail shape check"
+      check: "Shape(X)[-len(normalized_shape):] == normalized_shape"
+    - description: "Affine Weight Shape Check"
+      check: "Not(elementwise_affine) | (Shape(W) == normalized_shape)"
+    - description: "Affine Bias Shape Check"
+      check: "Not(bias) | (Shape(B) == normalized_shape)"
+
+RMSNorm:
+  description: "Root Mean Square Layer Normalization (No centering)."
+  math_symbol: >
+    (X * Sqrt(Mean(X**2, reduce_axes) + epsilon)**(-1)) * Piecewise((W, elementwise_affine), (1, True))
+  param_map:
+    normalized_shape: "normalized_shape"
+    eps: "epsilon"
+    elementwise_affine: "elementwise_affine"
+  mechanisms:
+    - description: "Input tail shape check"
+      check: "Shape(X)[-len(normalized_shape):] == normalized_shape"
+    - description: "Weight Shape Check"
+      check: "Not(elementwise_affine) | (Shape(W) == normalized_shape)"
+
+LocalResponseNorm:
+  description: "PyTorch Local Response Normalization (Across Channels)."
+  definition_type: operator
+
+
+  math_symbol: >
+    X[n, c, h, w] / ((bias_k + (alpha_val / size) * sq_sum) ** beta_val)
+  derived_variables:
+    sq_sum: >
+      Sum(X[n, i, h, w]**2, (i, Max(0, c - (size // 2)), Min(Dim(X, 1)-1, c + (size // 2))))
+  output_shape:
+    - "n"
+    - "Dim(X, 1)"
+    - "Dim(X, 2)"
+    - "Dim(X, 3)"
+  param_map:
+    size: "size"
+    alpha: "alpha_val"
+    beta: "beta_val"
+    k: "bias_k"
+  mechanisms:
+    - description: "Input Rank Check (NCHW)"
+      check: "Rank(X) == 4"
+    - description: "Divisor Safety"
+      check: "bias_k > 0"
+
+Flatten:
+  description: "PyTorch Flatten Operator. Collapses dimensions into a single one."
+  derived_variables:
+    H4: "Dim(X, 2)"
+    W4: "Dim(X, 3)"
+    Stride_C4: "H4 * W4"
+    W3: "Dim(X, 2)"
+  math_symbol: >
+    Piecewise(
+      (
+        X[
+          n, 
+          floor(i / Stride_C4),
+          floor((i % Stride_C4) / W4),
+          i % W4
+        ],
+        (Rank(X) == 4) & (start_dim == 1) & (end_dim == -1)
+      ),
+      (
+        X[
+          n,
+          floor(i / W3),
+          i % W3
+        ],
+        (Rank(X) == 3) & (start_dim == 1) & (end_dim == -1)
+      )
+    )
+  output_shape:
+    - "Dim(X, 0)"
+    - "Piecewise((Dim(X, 1) * Dim(X, 2) * Dim(X, 3), Rank(X) == 4), (Dim(X, 1) * Dim(X, 2), Rank(X) == 3))"
+  param_map:
+    start_dim: "start_dim"
+    end_dim: "end_dim"
+  mechanisms:
+    - description: "Current coordinate formula supports rank 3 or rank 4"
+      check: "(Rank(X) == 3) | (Rank(X) == 4)"
+    - description: "Current coordinate formula preserves the batch dimension"
+      check: "start_dim == 1"
+    - description: "Current coordinate formula flattens through the final dimension"
+      check: "end_dim == -1"
+    - description: "Start dimension must be non-negative"
+      check: "start_dim >= 0"
+    - description: "Start dimension must be within input rank"
+      check: "start_dim < Rank(X)"
+    - description: "End dimension must be valid"
+      check: "end_dim < Rank(X) or end_dim == -1"
+
+Unflatten:
+  description: "PyTorch Unflatten Operator. Inverse of Flatten. Maps 1D index back to multi-dim coordinates."
+  math_symbol: >
+    Piecewise(
+      (
+        X[n, c * S_C4 + h * d2 + w],
+        (Rank(X) == 2) & (dim == 1) & (len(sizes) == 3)
+      ),
+      (
+        X[n, c * S_C3 + h],
+        (Rank(X) == 2) & (dim == 1) & (len(sizes) == 2)
+      )
+    )
+  derived_variables:
+    d0: "Dim(sizes, 0)"
+    d1: "Dim(sizes, 1)"
+    d2: "Dim(sizes, 2)"
+    S_C4: "d1 * d2"
+    S_C3: "d1"
+  output_shape:
+    - Piecewise(
+      ((n, Dim(sizes, 0), Dim(sizes, 1), Dim(sizes, 2)), (Rank(X) == 2) & (Rank(sizes) == 3)),
+      ((n, Dim(sizes, 0), Dim(sizes, 1)), (Rank(X) == 2) & (Rank(sizes) == 2))
+      )
+  param_map:
+    dim: "dim"
+    unflattened_size: "sizes"
+  mechanisms:
+    - description: "Unflatten Total Size Match"
+      check: "Dim(X, dim) == Piecewise((Dim(sizes, 0)*Dim(sizes, 1)*Dim(sizes, 2), Rank(sizes) == 3), (Dim(sizes, 0)*Dim(sizes, 1), Rank(sizes) == 2), (0, True))"
+
+Linear: &Linear
+  description: "Linear operator (Rank 2-5). Channel-first (C at Index 1). Using cin for total features."
+  derived_variables:
+    cin: "Dim(W, 1)"
+    cout: "Dim(W, 0)"
+  math_symbol: >
+    Piecewise(
+      (Sum(X[n, k] * W[out, k], (k, 0, cin - 1)) + B[out], (Rank(X) == 2) & bias),
+      (Sum(X[n, k] * W[out, k], (k, 0, cin - 1)), Rank(X) == 2),
+      (Sum(X[n, k, l] * W[out, k], (k, 0, cin - 1)) + B[out], (Rank(X) == 3) & bias),
+      (Sum(X[n, k, l] * W[out, k], (k, 0, cin - 1)), Rank(X) == 3),
+      (Sum(X[n, k, h, w] * W[out, k], (k, 0, cin - 1)) + B[out], (Rank(X) == 4) & bias),
+      (Sum(X[n, k, h, w] * W[out, k], (k, 0, cin - 1)), Rank(X) == 4),
+      (Sum(X[n, k, d, h, w] * W[out, k], (k, 0, cin - 1)) + B[out], (Rank(X) == 5) & bias),
+      (Sum(X[n, k, d, h, w] * W[out, k], (k, 0, cin - 1)), Rank(X) == 5)
+    )
+  output_shape:
+    - Piecewise(
+        ((Dim(X, 0), cout), Rank(X) == 2),
+        ((Dim(X, 0), cout, Dim(X, 2)), Rank(X) == 3),
+        ((Dim(X, 0), cout, Dim(X, 2), Dim(X, 3)), Rank(X) == 4),
+        ((Dim(X, 0), cout, Dim(X, 2), Dim(X, 3), Dim(X, 4)), Rank(X) == 5)
+      )
+  param_map:
+    in_features:  cin
+    out_features: cout
+    bias:         bias
+  mechanisms:
+    - description: "Channel dimension at Index 1 must match cin"
+      check: "Dim(X, 1) == cin"
+    - description: "Weight shape check"
+      check: "Dim(W, 0) == cout and Dim(W, 1) == cin"
+
+Bilinear:
+  description: "Bilinear operator (Rank 2-3). Explicit dual summation."
+  output_shape:
+    - Piecewise(
+        ((n, cout), Rank(X1) == 2),
+        ((n, cout, l), Rank(X1) == 3)
+      )
+  math_symbol: >
+    Piecewise(
+      (
+        Sum(Sum(W[out, k1, k2] * X1[n, k1] * X2[n, k2], (k1, 0, cin1 - 1)), (k2, 0, cin2 - 1)) + B[out], 
+        (Rank(X1) == 2) & bias
+      ),
+      (
+        Sum(Sum(W[out, k1, k2] * X1[n, k1] * X2[n, k2], (k1, 0, cin1 - 1)), (k2, 0, cin2 - 1)), 
+        Rank(X1) == 2
+      ),
+      (
+        Sum(Sum(W[out, k1, k2] * X1[n, k1, l] * X2[n, k2, l], (k1, 0, cin1 - 1)), (k2, 0, cin2 - 1)) + B[out], 
+        (Rank(X1) == 3) & bias
+      ),
+      (
+        Sum(Sum(W[out, k1, k2] * X1[n, k1, l] * X2[n, k2, l], (k1, 0, cin1 - 1)), (k2, 0, cin2 - 1)), 
+        Rank(X1) == 3
+      )
+    )
+  param_map:
+    in1_features: cin1
+    in2_features: cin2
+    out_features: cout
+    bias: bias
+  mechanisms:
+    - description: "Input channel consistency check"
+      check: "Dim(X1, 1) == cin1 and Dim(X2, 1) == cin2"
+    - description: "Weight and Bias alignment"
+      check: "Dim(W, 0) == cout and (not bias or Dim(B, 0) == cout)"
+
+MultiheadAttention:
+  description: "PyTorch Multi-Head Attention including kdim/vdim separation and sequence augmentation (add_bias_kv, add_zero_attn)."
+  definition_type: operator
+  math_symbol: >
+    Sum(
+      (
+        Sum(
+          Piecewise(
+            (
+              Sum(
+                (
+                  Exp(
+                    Sum(
+                      (Sum(Piecewise((Query[n, l, k_q], batch_first == True), (Query[l, n, k_q], True)) * W_q[h * d_k + i_head, k_q], (k_q, 0, E_q - 1)) + Piecewise((B_q[h * d_k + i_head], bias == True), (0, True))) * Piecewise(
+                        (Sum(Piecewise((Key[n, s, k_k], batch_first == True), (Key[s, n, k_k], True)) * W_k[h * d_k + i_head, k_k], (k_k, 0, E_k - 1)) + Piecewise((B_k[h * d_k + i_head], bias == True), (0, True)), s < S_kv),
+                        (Bias_k_seq[0, 0, h * d_k + i_head], (add_bias_kv == True) & Eq(s, S_kv)),
+                        (0, True)
+                      ),
+                      (i_head, 0, d_k - 1)
+                    ) * (1 / Sqrt(d_k))
+                  ) / 
+                  Sum(
+                    Exp(
+                      Sum(
+                        (Sum(Piecewise((Query[n, l, k_q], batch_first == True), (Query[l, n, k_q], True)) * W_q[h * d_k + i_head, k_q], (k_q, 0, E_q - 1)) + Piecewise((B_q[h * d_k + i_head], bias == True), (0, True))) * Piecewise(
+                          (Sum(Piecewise((Key[n, ss, k_k], batch_first == True), (Key[ss, n, k_k], True)) * W_k[h * d_k + i_head, k_k], (k_k, 0, E_k - 1)) + Piecewise((B_k[h * d_k + i_head], bias == True), (0, True)), ss < S_kv),
+                          (Bias_k_seq[0, 0, h * d_k + i_head], (add_bias_kv == True) & Eq(ss, S_kv)),
+                          (0, True)
+                        ),
+                        (i_head, 0, d_k - 1)
+                      ) * (1 / Sqrt(d_k))
+                    ),
+                    (ss, 0, S_kv_ext - 1)
+                  )
+                ) * Piecewise(
+                  (Sum(Piecewise((Value[n, s, k_v], batch_first == True), (Value[s, n, k_v], True)) * W_v[h * d_k + Mod(i_out, d_k), k_v], (k_v, 0, E_v - 1)) + Piecewise((B_v[h * d_k + Mod(i_out, d_k)], bias == True), (0, True)), s < S_kv),
+                  (Bias_v_seq[0, 0, h * d_k + Mod(i_out, d_k)], (add_bias_kv == True) & Eq(s, S_kv)),
+                  (0, True)
+                ),
+                (s, 0, S_kv_ext - 1)
+              ),
+              Eq(h, floor(i_out / d_k))
+            ),
+            (0, True)
+          ) * W_out[out, i_out],
+          (i_out, 0, d_model - 1)
+        )
+      ) + Piecewise((B_out[out], bias == True), (0, True)),
+      (h, 0, H - 1)
+    )
+  output_shape:
+    - "Dim(Query, 0)"
+    - "Dim(Query, 1)"
+    - "d_model"
+  derived_variables:
+    N: "Piecewise((Dim(Query, 0), batch_first == True), (Dim(Query, 1), True))"
+    L: "Piecewise((Dim(Query, 1), batch_first == True), (Dim(Query, 0), True))"
+    S_kv: "Piecewise((Dim(Key, 1), batch_first == True), (Dim(Key, 0), True))"
+    E_q: "Dim(Query, 2)"
+    E_k: "Dim(Key, 2)"
+    E_v: "Dim(Value, 2)"
+    d_k: "d_model // H"
+    S_kv_ext: "S_kv + Piecewise((1, add_bias_kv == True), (0, True)) + Piecewise((1, add_zero_attn == True), (0, True))"
+  param_map:
+    embed_dim:     "d_model"
+    num_heads:     "H"
+    dropout:       "dropout"
+    bias:          "bias"
+    add_bias_kv:   "add_bias_kv"
+    add_zero_attn: "add_zero_attn"
+    kdim:          "kdim"
+    vdim:          "vdim"
+    batch_first:   "batch_first"
+  mechanisms:
+    - description: "Embed Dim Divisibility"
+      check: "d_model % H == 0"
+    - description: "Query Rank Check"
+      check: "Rank(Query) == 3"
+
+
+TransformerEncoderLayer:
+  description: "PyTorch TransformerEncoderLayer in inference semantics. Dropout is identity when eval() or dropout=0."
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+      (Transpose(enc_pre_out, 0, 1), (norm_first == True) & (batch_first == False)),
+      (enc_pre_out, norm_first == True),
+      (Transpose(enc_post_out, 0, 1), batch_first == False),
+      (enc_post_out, True)
+    )
+  output_shape:
+    - "Dim(X, 0)"
+    - "Dim(X, 1)"
+    - "d_model"
+  derived_variables:
+    Bsz: "Piecewise((Dim(X, 0), batch_first == True), (Dim(X, 1), True))"
+    L: "Piecewise((Dim(X, 1), batch_first == True), (Dim(X, 0), True))"
+    d_k: "d_model // H"
+    Xc: "Piecewise((X, batch_first == True), (Transpose(X, 0, 1), True))"
+
+    pre_norm1: "((Xc - Mean(Xc, -1)) / Sqrt(Var(Xc, -1) + epsilon)) * W_norm1 + B_norm1"
+    pre_self_q: "MatMul(pre_norm1, Transpose(W_self_q, 0, 1)) + B_self_q"
+    pre_self_k: "MatMul(pre_norm1, Transpose(W_self_k, 0, 1)) + B_self_k"
+    pre_self_v: "MatMul(pre_norm1, Transpose(W_self_v, 0, 1)) + B_self_v"
+    pre_self_qh: "Transpose(Reshape(pre_self_q, (Bsz, L, H, d_k)), 1, 2)"
+    pre_self_kh: "Transpose(Reshape(pre_self_k, (Bsz, L, H, d_k)), 1, 2)"
+    pre_self_vh: "Transpose(Reshape(pre_self_v, (Bsz, L, H, d_k)), 1, 2)"
+    pre_self_scores: "MatMul(pre_self_qh, Transpose(pre_self_kh, 2, 3)) / Sqrt(d_k)"
+    pre_self_attn: "Softmax(pre_self_scores, -1)"
+    pre_self_ctx: "Reshape(Transpose(MatMul(pre_self_attn, pre_self_vh), 1, 2), (Bsz, L, d_model))"
+    pre_self_out: "MatMul(pre_self_ctx, Transpose(W_self_out, 0, 1)) + B_self_out"
+    pre_attn_res: "Xc + pre_self_out"
+    pre_norm2: "((pre_attn_res - Mean(pre_attn_res, -1)) / Sqrt(Var(pre_attn_res, -1) + epsilon)) * W_norm2 + B_norm2"
+    pre_ff1: "MatMul(pre_norm2, Transpose(W_linear1, 0, 1)) + B_linear1"
+    pre_act: "Piecewise((Max(pre_ff1, 0), activation_id == 1), (0.5 * pre_ff1 * (1 + Erf(pre_ff1 / Sqrt(2))), True))"
+    pre_ff2: "MatMul(pre_act, Transpose(W_linear2, 0, 1)) + B_linear2"
+    enc_pre_out: "pre_attn_res + pre_ff2"
+
+    post_self_q: "MatMul(Xc, Transpose(W_self_q, 0, 1)) + B_self_q"
+    post_self_k: "MatMul(Xc, Transpose(W_self_k, 0, 1)) + B_self_k"
+    post_self_v: "MatMul(Xc, Transpose(W_self_v, 0, 1)) + B_self_v"
+    post_self_qh: "Transpose(Reshape(post_self_q, (Bsz, L, H, d_k)), 1, 2)"
+    post_self_kh: "Transpose(Reshape(post_self_k, (Bsz, L, H, d_k)), 1, 2)"
+    post_self_vh: "Transpose(Reshape(post_self_v, (Bsz, L, H, d_k)), 1, 2)"
+    post_self_scores: "MatMul(post_self_qh, Transpose(post_self_kh, 2, 3)) / Sqrt(d_k)"
+    post_self_attn: "Softmax(post_self_scores, -1)"
+    post_self_ctx: "Reshape(Transpose(MatMul(post_self_attn, post_self_vh), 1, 2), (Bsz, L, d_model))"
+    post_self_out: "MatMul(post_self_ctx, Transpose(W_self_out, 0, 1)) + B_self_out"
+    post_attn_res: "Xc + post_self_out"
+    post_norm1: "((post_attn_res - Mean(post_attn_res, -1)) / Sqrt(Var(post_attn_res, -1) + epsilon)) * W_norm1 + B_norm1"
+    post_ff1: "MatMul(post_norm1, Transpose(W_linear1, 0, 1)) + B_linear1"
+    post_act: "Piecewise((Max(post_ff1, 0), activation_id == 1), (0.5 * post_ff1 * (1 + Erf(post_ff1 / Sqrt(2))), True))"
+    post_ff2: "MatMul(post_act, Transpose(W_linear2, 0, 1)) + B_linear2"
+    post_ff_res: "post_norm1 + post_ff2"
+    enc_post_out: "((post_ff_res - Mean(post_ff_res, -1)) / Sqrt(Var(post_ff_res, -1) + epsilon)) * W_norm2 + B_norm2"
+  param_map:
+    d_model: "d_model"
+    nhead: "H"
+    dim_feedforward: "d_ff"
+    dropout: "dropout"
+    batch_first: "batch_first"
+    norm_first: "norm_first"
+    bias: "bias"
+    layer_norm_eps: "epsilon"
+    activation_id: "activation_id"
+    training: "training"
+  mechanisms:
+    - description: "Input Rank Check"
+      check: "Rank(X) == 3"
+    - description: "Embedding Dimension Consistency"
+      check: "Dim(X, 2) == d_model"
+    - description: "Head Dimension Consistency"
+      check: "d_model % H == 0"
+    - description: "FeedForward Dimension Validity"
+      check: "d_ff > 0"
+    - description: "Deterministic Dropout Semantics"
+      check: "(training == False) or (dropout == 0)"
+
+Dropout:
+  definition_type: operator
+  description: "PyTorch Dropout in inference/training semantics. Evaluation mode is identity."
+  math_symbol: >
+    Piecewise(
+      (X * Bernoulli(1 - p, axis) * (1 / (1 - p)), training == True),
+      (X, True)
+    )
+  param_map:
+    p: "p"
+    training: "training"
+  output_shape:
+    - "Shape(X)"
+  mechanisms:
+    - description: "Probability range check"
+      check: "(p >= 0) and (p < 1)"
+
+Dropout2d:
+  definition_type: operator
+  description: "PyTorch channel-wise Dropout2d. Evaluation mode is identity."
+  math_symbol: >
+    Piecewise(
+      (X, training == True),
+      (X, True)
+    )
+  param_map:
+    p: "p"
+    training: "training"
+  output_shape:
+    - "Shape(X)"
+  mechanisms:
+    - description: "Rank check"
+      check: "Rank(X) == 4"
+    - description: "Probability range check"
+      check: "(p >= 0) and (p < 1)"
+
+Dropout3d:
+  definition_type: operator
+  description: "PyTorch channel-wise Dropout3d. Evaluation mode is identity."
+  math_symbol: >
+    Piecewise(
+      (X, training == True),
+      (X, True)
+    )
+  param_map:
+    p: "p"
+    training: "training"
+  output_shape:
+    - "Shape(X)"
+  mechanisms:
+    - description: "Rank check"
+      check: "Rank(X) == 5"
+    - description: "Probability range check"
+      check: "(p >= 0) and (p < 1)"
+
+TransformerDecoderLayer:
+  description: "PyTorch TransformerDecoderLayer in inference semantics. Dropout is identity when eval() or dropout=0."
+  definition_type: operator
+  math_symbol: >
+    Piecewise(
+      (Transpose(dec_pre_out, 0, 1), (norm_first == True) & (batch_first == False)),
+      (dec_pre_out, norm_first == True),
+      (Transpose(dec_post_out, 0, 1), batch_first == False),
+      (dec_post_out, True)
+    )
+  output_shape:
+    - "Dim(X, 0)"
+    - "Dim(X, 1)"
+    - "d_model"
+  derived_variables:
+    Bsz: "Piecewise((Dim(X, 0), batch_first == True), (Dim(X, 1), True))"
+    L: "Piecewise((Dim(X, 1), batch_first == True), (Dim(X, 0), True))"
+    L_mem: "Piecewise((Dim(Memory, 1), batch_first == True), (Dim(Memory, 0), True))"
+    d_k: "d_model // H"
+    Xc: "Piecewise((X, batch_first == True), (Transpose(X, 0, 1), True))"
+    Mc: "Piecewise((Memory, batch_first == True), (Transpose(Memory, 0, 1), True))"
+
+    pre_norm1: "((Xc - Mean(Xc, -1)) / Sqrt(Var(Xc, -1) + epsilon)) * W_norm1 + B_norm1"
+    pre_self_q: "MatMul(pre_norm1, Transpose(W_self_q, 0, 1)) + B_self_q"
+    pre_self_k: "MatMul(pre_norm1, Transpose(W_self_k, 0, 1)) + B_self_k"
+    pre_self_v: "MatMul(pre_norm1, Transpose(W_self_v, 0, 1)) + B_self_v"
+    pre_self_qh: "Transpose(Reshape(pre_self_q, (Bsz, L, H, d_k)), 1, 2)"
+    pre_self_kh: "Transpose(Reshape(pre_self_k, (Bsz, L, H, d_k)), 1, 2)"
+    pre_self_vh: "Transpose(Reshape(pre_self_v, (Bsz, L, H, d_k)), 1, 2)"
+    pre_self_scores: "MatMul(pre_self_qh, Transpose(pre_self_kh, 2, 3)) / Sqrt(d_k)"
+    pre_self_attn: "Softmax(pre_self_scores, -1)"
+    pre_self_ctx: "Reshape(Transpose(MatMul(pre_self_attn, pre_self_vh), 1, 2), (Bsz, L, d_model))"
+    pre_self_out: "MatMul(pre_self_ctx, Transpose(W_self_out, 0, 1)) + B_self_out"
+    pre_self_res: "Xc + pre_self_out"
+    pre_norm2: "((pre_self_res - Mean(pre_self_res, -1)) / Sqrt(Var(pre_self_res, -1) + epsilon)) * W_norm2 + B_norm2"
+    pre_cross_q: "MatMul(pre_norm2, Transpose(W_cross_q, 0, 1)) + B_cross_q"
+    pre_cross_k: "MatMul(Mc, Transpose(W_cross_k, 0, 1)) + B_cross_k"
+    pre_cross_v: "MatMul(Mc, Transpose(W_cross_v, 0, 1)) + B_cross_v"
+    pre_cross_qh: "Transpose(Reshape(pre_cross_q, (Bsz, L, H, d_k)), 1, 2)"
+    pre_cross_kh: "Transpose(Reshape(pre_cross_k, (Bsz, L_mem, H, d_k)), 1, 2)"
+    pre_cross_vh: "Transpose(Reshape(pre_cross_v, (Bsz, L_mem, H, d_k)), 1, 2)"
+    pre_cross_scores: "MatMul(pre_cross_qh, Transpose(pre_cross_kh, 2, 3)) / Sqrt(d_k)"
+    pre_cross_attn: "Softmax(pre_cross_scores, -1)"
+    pre_cross_ctx: "Reshape(Transpose(MatMul(pre_cross_attn, pre_cross_vh), 1, 2), (Bsz, L, d_model))"
+    pre_cross_out: "MatMul(pre_cross_ctx, Transpose(W_cross_out, 0, 1)) + B_cross_out"
+    pre_cross_res: "pre_self_res + pre_cross_out"
+    pre_norm3: "((pre_cross_res - Mean(pre_cross_res, -1)) / Sqrt(Var(pre_cross_res, -1) + epsilon)) * W_norm3 + B_norm3"
+    pre_ff1: "MatMul(pre_norm3, Transpose(W_linear1, 0, 1)) + B_linear1"
+    pre_act: "Piecewise((Max(pre_ff1, 0), activation_id == 1), (0.5 * pre_ff1 * (1 + Erf(pre_ff1 / Sqrt(2))), True))"
+    pre_ff2: "MatMul(pre_act, Transpose(W_linear2, 0, 1)) + B_linear2"
+    dec_pre_out: "pre_cross_res + pre_ff2"
+
+    post_self_q: "MatMul(Xc, Transpose(W_self_q, 0, 1)) + B_self_q"
+    post_self_k: "MatMul(Xc, Transpose(W_self_k, 0, 1)) + B_self_k"
+    post_self_v: "MatMul(Xc, Transpose(W_self_v, 0, 1)) + B_self_v"
+    post_self_qh: "Transpose(Reshape(post_self_q, (Bsz, L, H, d_k)), 1, 2)"
+    post_self_kh: "Transpose(Reshape(post_self_k, (Bsz, L, H, d_k)), 1, 2)"
+    post_self_vh: "Transpose(Reshape(post_self_v, (Bsz, L, H, d_k)), 1, 2)"
+    post_self_scores: "MatMul(post_self_qh, Transpose(post_self_kh, 2, 3)) / Sqrt(d_k)"
+    post_self_attn: "Softmax(post_self_scores, -1)"
+    post_self_ctx: "Reshape(Transpose(MatMul(post_self_attn, post_self_vh), 1, 2), (Bsz, L, d_model))"
+    post_self_out: "MatMul(post_self_ctx, Transpose(W_self_out, 0, 1)) + B_self_out"
+    post_self_res: "Xc + post_self_out"
+    post_norm1: "((post_self_res - Mean(post_self_res, -1)) / Sqrt(Var(post_self_res, -1) + epsilon)) * W_norm1 + B_norm1"
+    post_cross_q: "MatMul(post_norm1, Transpose(W_cross_q, 0, 1)) + B_cross_q"
+    post_cross_k: "MatMul(Mc, Transpose(W_cross_k, 0, 1)) + B_cross_k"
+    post_cross_v: "MatMul(Mc, Transpose(W_cross_v, 0, 1)) + B_cross_v"
+    post_cross_qh: "Transpose(Reshape(post_cross_q, (Bsz, L, H, d_k)), 1, 2)"
+    post_cross_kh: "Transpose(Reshape(post_cross_k, (Bsz, L_mem, H, d_k)), 1, 2)"
+    post_cross_vh: "Transpose(Reshape(post_cross_v, (Bsz, L_mem, H, d_k)), 1, 2)"
+    post_cross_scores: "MatMul(post_cross_qh, Transpose(post_cross_kh, 2, 3)) / Sqrt(d_k)"
+    post_cross_attn: "Softmax(post_cross_scores, -1)"
+    post_cross_ctx: "Reshape(Transpose(MatMul(post_cross_attn, post_cross_vh), 1, 2), (Bsz, L, d_model))"
+    post_cross_out: "MatMul(post_cross_ctx, Transpose(W_cross_out, 0, 1)) + B_cross_out"
+    post_cross_res: "post_norm1 + post_cross_out"
+    post_norm2: "((post_cross_res - Mean(post_cross_res, -1)) / Sqrt(Var(post_cross_res, -1) + epsilon)) * W_norm2 + B_norm2"
+    post_ff1: "MatMul(post_norm2, Transpose(W_linear1, 0, 1)) + B_linear1"
+    post_act: "Piecewise((Max(post_ff1, 0), activation_id == 1), (0.5 * post_ff1 * (1 + Erf(post_ff1 / Sqrt(2))), True))"
+    post_ff2: "MatMul(post_act, Transpose(W_linear2, 0, 1)) + B_linear2"
+    post_ff_res: "post_norm2 + post_ff2"
+    dec_post_out: "((post_ff_res - Mean(post_ff_res, -1)) / Sqrt(Var(post_ff_res, -1) + epsilon)) * W_norm3 + B_norm3"
+  param_map:
+    d_model: "d_model"
+    nhead: "H"
+    dim_feedforward: "d_ff"
+    dropout: "dropout"
+    batch_first: "batch_first"
+    norm_first: "norm_first"
+    bias: "bias"
+    layer_norm_eps: "epsilon"
+    activation_id: "activation_id"
+    training: "training"
+  mechanisms:
+    - description: "Target Rank Check"
+      check: "Rank(X) == 3"
+    - description: "Memory Rank Check"
+      check: "Rank(Memory) == 3"
+    - description: "Embedding Dimension Consistency"
+      check: "(Dim(X, 2) == d_model) and (Dim(Memory, 2) == d_model)"
+    - description: "Head Dimension Consistency"
+      check: "d_model % H == 0"
+    - description: "FeedForward Dimension Validity"
+      check: "d_ff > 0"
+    - description: "Deterministic Dropout Semantics"
+      check: "(training == False) or (dropout == 0)"
+Embedding:
+  definition_type: operator
+  description: "Embedding lookup selects rows from the weight matrix using integer indices."
+  math_symbol: "EmbeddingLookup(W, X, -1)"
+  param_map:
+    weight: W
